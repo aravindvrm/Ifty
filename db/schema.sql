@@ -120,6 +120,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_managers_cik
 ON managers (cik)
 WHERE cik IS NOT NULL;
 
+-- Ranked universe of managers to track operationally.
+CREATE TABLE IF NOT EXISTS manager_universe (
+  manager_id INTEGER PRIMARY KEY REFERENCES managers (manager_id),
+  rank INTEGER NOT NULL,
+  total_value_usd REAL,
+  as_of_report_date TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'AGG_MANAGER_QUARTER',
+  is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS ix_manager_universe_rank
+ON manager_universe (rank, is_active);
+
 -- Filing header table for 13F, 13D, 13G, NPORT.
 CREATE TABLE IF NOT EXISTS filings (
   filing_id INTEGER PRIMARY KEY,
@@ -250,4 +264,3 @@ CREATE TABLE IF NOT EXISTS agg_manager_quarter (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (manager_id, report_date)
 );
-

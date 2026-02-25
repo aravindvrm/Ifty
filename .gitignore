@@ -1,3 +1,16 @@
 # Env
 .env
 apps/web/.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Local data
+data/*.db
+
+# Web frontend
+apps/web/node_modules/
+apps/web/.next/

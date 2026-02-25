@@ -1,0 +1,193 @@
+:root {
+  --bg: #07111d;
+  --bg-soft: #101b2a;
+  --card: #12253b;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --grid: #223447;
+  --line: #274157;
+  --accent: #0ea5e9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(1200px 600px at 10% -20%, rgba(14, 165, 233, 0.25), transparent 40%),
+    radial-gradient(900px 500px at 110% 20%, rgba(34, 197, 94, 0.2), transparent 35%),
+    var(--bg);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.shell-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: blur(8px);
+  background: rgba(7, 17, 29, 0.8);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 22px;
+}
+
+.shell-header nav {
+  display: flex;
+  gap: 16px;
+  color: var(--muted);
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.shell-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 22px;
+}
+
+.page-title {
+  margin: 0 0 10px;
+  font-size: 1.9rem;
+}
+
+.page-subtitle {
+  margin: 0 0 16px;
+  color: var(--muted);
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.card,
+.chart-box {
+  border: 1px solid var(--line);
+  background: linear-gradient(160deg, rgba(18, 37, 59, 0.95), rgba(12, 27, 45, 0.9));
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.chart-box h3,
+.card h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.metric {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(9, 19, 32, 0.55);
+}
+
+.metric .label {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.metric .value {
+  margin-top: 6px;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 640px;
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 6px;
+  text-align: right;
+}
+
+.table th:first-child,
+.table td:first-child {
+  text-align: left;
+}
+
+.badge-pos {
+  color: #22c55e;
+}
+
+.badge-neg {
+  color: #ef4444;
+}
+
+.input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+input,
+button {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.spark-cell {
+  width: 120px;
+  height: 44px;
+}
+
+.stack {
+  display: grid;
+  gap: 16px;
+}
+
+.empty-box {
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  padding: 24px;
+}
+
+@media (max-width: 900px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
