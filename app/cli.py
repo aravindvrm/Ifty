@@ -1,6 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import json
+import time
+from datetime import date
+from datetime import datetime
+from pathlib import Path
+
+from sqlalchemy import text
 
 from app.config import get_settings
 from app.db import ensure_schema_and_seed, get_engine
@@ -44,6 +52,54 @@ def _build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--recent-quarters", type=int, default=4)
     pipeline.add_argument("--min-holders", type=int, default=3)
     pipeline.add_argument("--min-total-value-usd", type=float, default=250_000_000.0)
+
+    incr = sub.add_parser("update-incremental", help="Run efficient incremental update for active manager universe.")
+    incr.add_argument("--top-n", type=int, default=300)
+    incr.add_argument("--ingest-limit", type=int, default=20, help="Per-manager filing rows to scan.")
+    incr.add_argument("--include-13dg", action="store_true", default=False)
+    incr.add_argument("--resolve-quarters", type=int, default=6, help="Recent report_date batches to resolve.")
+    incr.add_argument("--recent-quarters", type=int, default=4)
+    incr.add_argument("--min-holders", type=int, default=3)
+    incr.add_argument("--min-total-value-usd", type=float, default=250_000_000.0)
+    incr.add_argument("--skip-sync-tickers", action="store_true", default=False)
+    incr.add_argument("--log-file", default="", help="Optional structured log output path.")
+    incr.add_argument("--alert-min-13f-pct", type=float, default=95.0)
+    incr.add_argument("--alert-min-bo-pct", type=float, default=95.0)
+
+    seed = sub.add_parser("ingest-cik-list", help="Bootstrap by ingesting a CIK list file.")
+    seed.add_argument("--file", required=True, help="Path to CIK list file (.txt or .csv).")
+    seed.add_argument("--limit", type=int, default=20, help="Per-manager recent filing rows to scan.")
+    seed.add_argument("--include-13dg", action="store_true", default=False)
+
+    discover = sub.add_parser("discover-13f-ciks", help="Discover 13F filer CIKs from SEC master index.")
+    discover.add_argument("--quarters", type=int, default=4, help="How many recent quarters to scan.")
+    discover.add_argument("--max-ciks", type=int, default=1000, help="Maximum CIKs to write.")
+    discover.add_argument(
+        "--out",
+        default="seeds/ciks.discovered.txt",
+        help="Output file path for discovered CIKs.",
+    )
+
+    resume = sub.add_parser("resume-post-ingest", help="Resume post-ingest steps in bounded batches.")
+    resume.add_argument("--batch-size", type=int, default=200_000, help="Rows per resolve batch.")
+    resume.add_argument("--max-batches", type=int, default=100, help="Safety cap on resolve batches.")
+    resume.add_argument("--recent-quarters", type=int, default=4)
+    resume.add_argument("--min-holders", type=int, default=3)
+    resume.add_argument("--min-total-value-usd", type=float, default=250_000_000.0)
+    resume.add_argument("--top-n", type=int, default=300)
+    resume.add_argument("--log-file", default="", help="Optional log file path for structured progress logs.")
+    resume.add_argument("--skip-sync-tickers", action="store_true", default=False)
+    resume.add_argument("--alert-min-13f-pct", type=float, default=95.0)
+    resume.add_argument("--alert-min-bo-pct", type=float, default=95.0)
+
+    enrich = sub.add_parser("enrich-cusips", help="Enrich CUSIP -> ticker crosswalk for in-scope holdings.")
+    enrich.add_argument("--recent-quarters", type=int, default=4)
+    enrich.add_argument("--top-n", type=int, default=300)
+    enrich.add_argument("--min-holders", type=int, default=3)
+    enrich.add_argument("--min-total-value-usd", type=float, default=250_000_000.0)
+    enrich.add_argument("--provider", choices=["openfigi", "noop"], default="noop")
+    enrich.add_argument("--limit-cusips", type=int, default=0, help="Optional cap on distinct CUSIPs.")
+    enrich.add_argument("--log-file", default="", help="Optional structured log output path.")
 
     sub.add_parser("refresh-aggregates", help="Rebuild aggregate tables from mapped holdings.")
     return parser
@@ -205,6 +261,152 @@ def _ingest_universe(limit: int, include_13dg: bool) -> None:
         )
 
 
+def _parse_cik_file(path: str) -> list[str]:
+    file_path = Path(path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"CIK file not found: {path}")
+
+    if file_path.suffix.lower() == ".csv":
+        ciks: list[str] = []
+        with file_path.open("r", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            cols = [c.lower().strip() for c in (reader.fieldnames or [])]
+            cik_col = None
+            for candidate in ["cik", "manager_cik"]:
+                if candidate in cols:
+                    cik_col = candidate
+                    break
+            if cik_col is None:
+                raise ValueError("CSV must include a 'cik' column.")
+
+            for row in reader:
+                val = row.get(cik_col) if row else None
+                if not val:
+                    continue
+                digits = "".join(ch for ch in str(val) if ch.isdigit())
+                if digits:
+                    ciks.append(digits.zfill(10))
+        return sorted(set(ciks))
+
+    # Plain text list: one CIK per line.
+    ciks = []
+    for line in file_path.read_text(encoding="utf-8").splitlines():
+        raw = line.strip()
+        if not raw or raw.startswith("#"):
+            continue
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        if digits:
+            ciks.append(digits.zfill(10))
+    return sorted(set(ciks))
+
+
+def _ingest_cik_list(file_path: str, limit: int, include_13dg: bool) -> None:
+    from sqlalchemy.orm import Session
+
+    from app.clients.rate_limit import ProviderRateLimiter
+    from app.clients.sec_client import SecClient, build_sec_http_session
+    from app.ingest.sec_13dg import Sec13DGIngestionService
+    from app.ingest.sec_13f import Sec13FIngestionService
+
+    ciks = _parse_cik_file(file_path)
+    settings = get_settings()
+    engine = get_engine()
+    ensure_schema_and_seed(engine)
+
+    limiter = ProviderRateLimiter()
+    limiter.register(provider="SEC", rate_per_sec=float(settings.sec_burst_per_second))
+    session = build_sec_http_session()
+
+    with Session(bind=engine) as db:
+        client = SecClient(session=session, limiter=limiter, db=db)
+        svc_13f = Sec13FIngestionService(db=db, sec_client=client)
+        svc_13dg = Sec13DGIngestionService(db=db, sec_client=client)
+
+        total_filings = 0
+        total_holdings = 0
+        total_events = 0
+        for cik in ciks:
+            r13f = svc_13f.ingest_for_cik(cik=cik, limit=limit)
+            total_filings += r13f.filings_upserted
+            total_holdings += r13f.holdings_inserted
+            if include_13dg:
+                r13dg = svc_13dg.ingest_for_cik(cik=cik, limit=limit)
+                total_filings += r13dg.filings_upserted
+                total_events += r13dg.events_inserted
+
+        print(
+            f"input_managers={len(ciks)} filings_upserted={total_filings} "
+            f"holdings_inserted={total_holdings} events_inserted={total_events}"
+        )
+
+
+def _recent_quarters(n: int) -> list[tuple[int, int]]:
+    today = date.today()
+    q = (today.month - 1) // 3 + 1
+    y = today.year
+    result: list[tuple[int, int]] = []
+    for _ in range(max(1, n)):
+        result.append((y, q))
+        q -= 1
+        if q == 0:
+            q = 4
+            y -= 1
+    return result
+
+
+def _discover_13f_ciks(quarters: int, max_ciks: int, out_path: str) -> None:
+    from collections import defaultdict
+
+    from sqlalchemy.orm import Session
+
+    from app.clients.rate_limit import ProviderRateLimiter
+    from app.clients.sec_client import SecClient, build_sec_http_session
+
+    settings = get_settings()
+    engine = get_engine()
+    ensure_schema_and_seed(engine)
+
+    limiter = ProviderRateLimiter()
+    limiter.register(provider="SEC", rate_per_sec=float(settings.sec_burst_per_second))
+    session = build_sec_http_session()
+    out_file = Path(out_path)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+
+    scores: dict[str, int] = defaultdict(int)
+    scanned_indexes = 0
+
+    with Session(bind=engine) as db:
+        client = SecClient(session=session, limiter=limiter, db=db)
+        for year, quarter in _recent_quarters(quarters):
+            url = f"{settings.sec_archives_base_url}/edgar/full-index/{year}/QTR{quarter}/master.idx"
+            try:
+                text_data = client.download_text(url)
+            except Exception:
+                continue
+            scanned_indexes += 1
+            for line in text_data.splitlines():
+                if "|" not in line:
+                    continue
+                parts = [p.strip() for p in line.split("|")]
+                if len(parts) < 5:
+                    continue
+                cik, _company, form_type, _filed_date, _filename = parts[:5]
+                if form_type not in {"13F-HR", "13F-HR/A"}:
+                    continue
+                digits = "".join(ch for ch in cik if ch.isdigit())
+                if not digits:
+                    continue
+                scores[digits.zfill(10)] += 1
+
+    ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    selected = [cik for cik, _score in ranked[: max(1, max_ciks)]]
+    out_file.write_text("\n".join(selected) + ("\n" if selected else ""), encoding="utf-8")
+    print(
+        f"quarters_scanned={scanned_indexes} discovered={len(scores)} "
+        f"selected={len(selected)} out={out_file}"
+    )
+
+
 def _pipeline_run(
     top_n: int,
     ingest_limit: int,
@@ -224,6 +426,534 @@ def _pipeline_run(
         universe_only=True,
     )
     _refresh_aggregates()
+
+
+def _update_incremental(
+    top_n: int,
+    ingest_limit: int,
+    include_13dg: bool,
+    resolve_quarters: int,
+    recent_quarters: int,
+    min_holders: int,
+    min_total_value_usd: float,
+    skip_sync_tickers: bool,
+    log_file: str,
+    alert_min_13f_pct: float,
+    alert_min_bo_pct: float,
+) -> None:
+    engine = get_engine()
+    ensure_schema_and_seed(engine)
+    _ensure_pipeline_log_table(engine)
+    run_id = datetime.utcnow().strftime("incr-%Y%m%dT%H%M%SZ")
+    _emit_run_event(
+        engine=engine,
+        run_id=run_id,
+        stage="incremental_start",
+        status="INFO",
+        message="Starting incremental update",
+        metrics={
+            "top_n": top_n,
+            "ingest_limit": ingest_limit,
+            "include_13dg": include_13dg,
+            "resolve_quarters": resolve_quarters,
+            "recent_quarters": recent_quarters,
+            "min_holders": min_holders,
+            "min_total_value_usd": min_total_value_usd,
+            "skip_sync_tickers": skip_sync_tickers,
+        },
+        log_file=log_file,
+    )
+
+    t0 = time.perf_counter()
+    _refresh_universe(top_n=top_n)
+    _emit_run_event(
+        engine=engine,
+        run_id=run_id,
+        stage="refresh_universe_pre",
+        status="INFO",
+        message="Refreshed manager universe before ingest",
+        metrics={"elapsed_sec": round(time.perf_counter() - t0, 3)},
+        log_file=log_file,
+    )
+
+    t_ing = time.perf_counter()
+    _ingest_universe(limit=ingest_limit, include_13dg=include_13dg)
+    _emit_run_event(
+        engine=engine,
+        run_id=run_id,
+        stage="ingest_universe",
+        status="INFO",
+        message="Ingested active manager universe filings",
+        metrics={"elapsed_sec": round(time.perf_counter() - t_ing, 3)},
+        log_file=log_file,
+    )
+
+    before = _current_mapping_counts(engine)
+    t_res = time.perf_counter()
+    from sqlalchemy.orm import Session
+    from app.resolution.security_resolver import SecurityResolverService
+
+    with Session(bind=engine) as db:
+        summary = SecurityResolverService(db=db).resolve_all(limit=resolve_quarters)
+    after = _current_mapping_counts(engine)
+    _emit_run_event(
+        engine=engine,
+        run_id=run_id,
+        stage="resolve_recent",
+        status="INFO",
+        message="Resolved mappings for recent quarter batches",
+        metrics={
+            "elapsed_sec": round(time.perf_counter() - t_res, 3),
+            "bootstrap_created": summary.bootstrap_created,
+            "holdings_mapped": summary.holdings_mapped,
+            "bo_events_mapped": summary.bo_events_mapped,
+            "holdings_batches": summary.holdings_batches or [],
+            "bo_batches": summary.bo_batches or [],
+            "before": before,
+            "after": after,
+        },
+        log_file=log_file,
+    )
+
+    if skip_sync_tickers:
+        _emit_run_event(
+            engine=engine,
+            run_id=run_id,
+            stage="sync_tickers",
+            status="INFO",
+            message="Skipped ticker sync by flag",
+            metrics={},
+            log_file=log_file,
+        )
+    else:
+        t_sync = time.perf_counter()
+        _sync_tickers(
+            limit=None,
+            recent_quarters=recent_quarters,
+            min_holders=min_holders,
+            min_total_value_usd=min_total_value_usd,
+            universe_only=True,
+        )
+        _emit_run_event(
+            engine=engine,
+            run_id=run_id,
+            stage="sync_tickers",
+            status="INFO",
+            message="Completed ticker sync",
+            metrics={"elapsed_sec": round(time.perf_counter() - t_sync, 3)},
+            log_file=log_file,
+        )
+
+    t_agg = time.perf_counter()
+    _refresh_aggregates()
+    _emit_run_event(
+        engine=engine,
+        run_id=run_id,
+        stage="refresh_aggregates",
+        status="INFO",
+        message="Completed aggregate refresh",
+        metrics={"elapsed_sec": round(time.perf_counter() - t_agg, 3)},
+        log_file=log_file,
+    )
+    t_uni = time.perf_counter()
+    _refresh_universe(top_n=top_n)
+    _emit_run_event(
+        engine=engine,
+        run_id=run_id,
+        stage="refresh_universe_post",
+        status="INFO",
+        message="Refreshed manager universe after ingest+resolve",
+        metrics={"elapsed_sec": round(time.perf_counter() - t_uni, 3)},
+        log_file=log_file,
+    )
+    _emit_run_event(
+        engine=engine,
+        run_id=run_id,
+        stage="incremental_done",
+        status="INFO",
+        message="Incremental update completed",
+        metrics={"final_counts": _current_mapping_counts(engine)},
+        log_file=log_file,
+    )
+    final_counts = _current_mapping_counts(engine)
+    coverage = _coverage_metrics(final_counts)
+    if coverage["mapping_pct_13f"] < alert_min_13f_pct or coverage["mapping_pct_bo"] < alert_min_bo_pct:
+        _emit_run_event(
+            engine=engine,
+            run_id=run_id,
+            stage="mapping_alert",
+            status="WARN",
+            message="Mapping coverage below configured threshold",
+            metrics={
+                **coverage,
+                "alert_min_13f_pct": alert_min_13f_pct,
+                "alert_min_bo_pct": alert_min_bo_pct,
+                "counts": final_counts,
+            },
+            log_file=log_file,
+        )
+
+
+def _ensure_pipeline_log_table(engine) -> None:
+    from sqlalchemy.orm import Session
+
+    with Session(bind=engine) as db:
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS pipeline_run_events (
+                  run_id TEXT NOT NULL,
+                  event_ts TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  stage TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  message TEXT,
+                  metrics_json TEXT
+                )
+                """
+            )
+        )
+        db.commit()
+
+
+def _emit_run_event(
+    engine,
+    run_id: str,
+    stage: str,
+    status: str,
+    message: str,
+    metrics: dict | None = None,
+    log_file: str = "",
+) -> None:
+    from sqlalchemy.orm import Session
+
+    payload = {
+        "ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "run_id": run_id,
+        "stage": stage,
+        "status": status,
+        "message": message,
+        "metrics": metrics or {},
+    }
+    line = json.dumps(payload, separators=(",", ":"))
+    print(line)
+    if log_file:
+        p = Path(log_file)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+
+    with Session(bind=engine) as db:
+        db.execute(
+            text(
+                """
+                INSERT INTO pipeline_run_events (run_id, stage, status, message, metrics_json)
+                VALUES (:run_id, :stage, :status, :message, :metrics_json)
+                """
+            ),
+            {
+                "run_id": run_id,
+                "stage": stage,
+                "status": status,
+                "message": message,
+                "metrics_json": json.dumps(metrics or {}),
+            },
+        )
+        db.commit()
+
+
+def _current_mapping_counts(engine) -> dict[str, int]:
+    from sqlalchemy.orm import Session
+
+    with Session(bind=engine) as db:
+        unmapped_13f = int(
+            db.execute(text("SELECT COUNT(*) FROM holdings_13f WHERE security_id IS NULL")).scalar() or 0
+        )
+        mapped_13f = int(
+            db.execute(text("SELECT COUNT(*) FROM holdings_13f WHERE security_id IS NOT NULL")).scalar() or 0
+        )
+        unmapped_bo = int(
+            db.execute(text("SELECT COUNT(*) FROM beneficial_ownership_events WHERE security_id IS NULL")).scalar()
+            or 0
+        )
+        mapped_bo = int(
+            db.execute(text("SELECT COUNT(*) FROM beneficial_ownership_events WHERE security_id IS NOT NULL")).scalar()
+            or 0
+        )
+    return {
+        "unmapped_13f": unmapped_13f,
+        "mapped_13f": mapped_13f,
+        "unmapped_bo": unmapped_bo,
+        "mapped_bo": mapped_bo,
+    }
+
+
+def _coverage_metrics(counts: dict[str, int]) -> dict[str, float]:
+    total_13f = counts["mapped_13f"] + counts["unmapped_13f"]
+    total_bo = counts["mapped_bo"] + counts["unmapped_bo"]
+    pct_13f = (counts["mapped_13f"] * 100.0 / total_13f) if total_13f else 100.0
+    pct_bo = (counts["mapped_bo"] * 100.0 / total_bo) if total_bo else 100.0
+    return {"mapping_pct_13f": round(pct_13f, 2), "mapping_pct_bo": round(pct_bo, 2)}
+
+
+def _resume_post_ingest(
+    batch_size: int,
+    max_batches: int,
+    recent_quarters: int,
+    min_holders: int,
+    min_total_value_usd: float,
+    top_n: int,
+    log_file: str,
+    skip_sync_tickers: bool,
+    alert_min_13f_pct: float,
+    alert_min_bo_pct: float,
+) -> None:
+    engine = get_engine()
+    ensure_schema_and_seed(engine)
+    _ensure_pipeline_log_table(engine)
+    run_id = datetime.utcnow().strftime("post-%Y%m%dT%H%M%SZ")
+    _emit_run_event(
+        engine=engine,
+        run_id=run_id,
+        stage="resume_start",
+        status="INFO",
+        message="Starting resume-post-ingest",
+        metrics={
+            "batch_size": batch_size,
+            "max_batches": max_batches,
+            "recent_quarters": recent_quarters,
+            "min_holders": min_holders,
+            "min_total_value_usd": min_total_value_usd,
+            "top_n": top_n,
+            "skip_sync_tickers": skip_sync_tickers,
+            "api_db_url": get_settings().api_db_url,
+        },
+        log_file=log_file,
+    )
+
+    total_bootstrap = 0
+    total_holdings = 0
+    total_bo = 0
+    for i in range(1, max_batches + 1):
+        from sqlalchemy.orm import Session
+
+        from app.resolution.security_resolver import SecurityResolverService
+
+        before = _current_mapping_counts(engine)
+        t0 = time.perf_counter()
+        try:
+            with Session(bind=engine) as db:
+                summary = SecurityResolverService(db=db).resolve_all(limit=batch_size)
+        except Exception as exc:
+            _emit_run_event(
+                engine=engine,
+                run_id=run_id,
+                stage="resolve_batch",
+                status="ERROR",
+                message=f"Resolve batch {i} failed: {exc}",
+                metrics={"batch": i, "before": before},
+                log_file=log_file,
+            )
+            raise
+        elapsed = round(time.perf_counter() - t0, 3)
+        after = _current_mapping_counts(engine)
+
+        total_bootstrap += summary.bootstrap_created
+        total_holdings += summary.holdings_mapped
+        total_bo += summary.bo_events_mapped
+        _emit_run_event(
+            engine=engine,
+            run_id=run_id,
+            stage="resolve_batch",
+            status="INFO",
+            message=f"Completed resolve batch {i}",
+            metrics={
+                "batch": i,
+                "elapsed_sec": elapsed,
+                "bootstrap_created": summary.bootstrap_created,
+                "holdings_mapped": summary.holdings_mapped,
+                "bo_events_mapped": summary.bo_events_mapped,
+                "holdings_batches": summary.holdings_batches or [],
+                "bo_batches": summary.bo_batches or [],
+                "before": before,
+                "after": after,
+            },
+            log_file=log_file,
+        )
+        if summary.bootstrap_created == 0 and summary.holdings_mapped == 0 and summary.bo_events_mapped == 0:
+            break
+
+    try:
+        if skip_sync_tickers:
+            _emit_run_event(
+                engine=engine,
+                run_id=run_id,
+                stage="sync_tickers",
+                status="INFO",
+                message="Skipped ticker sync by flag",
+                metrics={},
+                log_file=log_file,
+            )
+        else:
+            t_sync = time.perf_counter()
+            _sync_tickers(
+                limit=None,
+                recent_quarters=recent_quarters,
+                min_holders=min_holders,
+                min_total_value_usd=min_total_value_usd,
+                universe_only=True,
+            )
+            _emit_run_event(
+                engine=engine,
+                run_id=run_id,
+                stage="sync_tickers",
+                status="INFO",
+                message="Completed ticker sync",
+                metrics={"elapsed_sec": round(time.perf_counter() - t_sync, 3)},
+                log_file=log_file,
+            )
+
+        t_agg = time.perf_counter()
+        _refresh_aggregates()
+        _emit_run_event(
+            engine=engine,
+            run_id=run_id,
+            stage="refresh_aggregates",
+            status="INFO",
+            message="Completed aggregate refresh",
+            metrics={"elapsed_sec": round(time.perf_counter() - t_agg, 3)},
+            log_file=log_file,
+        )
+
+        t_uni = time.perf_counter()
+        _refresh_universe(top_n=top_n)
+        _emit_run_event(
+            engine=engine,
+            run_id=run_id,
+            stage="refresh_universe",
+            status="INFO",
+            message="Completed universe refresh",
+            metrics={"elapsed_sec": round(time.perf_counter() - t_uni, 3)},
+            log_file=log_file,
+        )
+    except Exception as exc:
+        _emit_run_event(
+            engine=engine,
+            run_id=run_id,
+            stage="post_resolve",
+            status="ERROR",
+            message=f"Post-resolve stage failed: {exc}",
+            metrics={},
+            log_file=log_file,
+        )
+        raise
+    _emit_run_event(
+        engine=engine,
+        run_id=run_id,
+        stage="resume_done",
+        status="INFO",
+        message="resume-post-ingest completed",
+        metrics={
+            "bootstrap_created_total": total_bootstrap,
+            "holdings_mapped_total": total_holdings,
+            "bo_events_mapped_total": total_bo,
+            "final_counts": _current_mapping_counts(engine),
+        },
+        log_file=log_file,
+    )
+    final_counts = _current_mapping_counts(engine)
+    coverage = _coverage_metrics(final_counts)
+    if coverage["mapping_pct_13f"] < alert_min_13f_pct or coverage["mapping_pct_bo"] < alert_min_bo_pct:
+        _emit_run_event(
+            engine=engine,
+            run_id=run_id,
+            stage="mapping_alert",
+            status="WARN",
+            message="Mapping coverage below configured threshold",
+            metrics={
+                **coverage,
+                "alert_min_13f_pct": alert_min_13f_pct,
+                "alert_min_bo_pct": alert_min_bo_pct,
+                "counts": final_counts,
+            },
+            log_file=log_file,
+        )
+
+
+def _enrich_cusips(
+    recent_quarters: int,
+    top_n: int,
+    min_holders: int,
+    min_total_value_usd: float,
+    provider_name: str,
+    limit_cusips: int,
+    log_file: str,
+) -> None:
+    from sqlalchemy.orm import Session
+
+    from app.clients.rate_limit import ProviderRateLimiter
+    from app.enrichment.cusip_to_ticker import (
+        CusipToTickerEnrichmentService,
+        NoopCusipProvider,
+        OpenFigiCusipProvider,
+    )
+
+    engine = get_engine()
+    ensure_schema_and_seed(engine)
+    _ensure_pipeline_log_table(engine)
+    run_id = datetime.utcnow().strftime("enrich-%Y%m%dT%H%M%SZ")
+    _emit_run_event(
+        engine=engine,
+        run_id=run_id,
+        stage="enrich_start",
+        status="INFO",
+        message="Starting CUSIP enrichment",
+        metrics={
+            "provider": provider_name,
+            "recent_quarters": recent_quarters,
+            "top_n": top_n,
+            "min_holders": min_holders,
+            "min_total_value_usd": min_total_value_usd,
+            "limit_cusips": limit_cusips,
+        },
+        log_file=log_file,
+    )
+
+    with Session(bind=engine) as db:
+        if provider_name == "openfigi":
+            settings = get_settings()
+            limiter = ProviderRateLimiter()
+            rpm = float(settings.openfigi_requests_per_minute)
+            limiter.register(provider="OPENFIGI", rate_per_sec=max(0.01, rpm / 60.0))
+            provider = OpenFigiCusipProvider(db=db, limiter=limiter)
+        else:
+            provider = NoopCusipProvider()
+
+        t0 = time.perf_counter()
+        summary = CusipToTickerEnrichmentService(db=db, provider=provider).enrich_in_scope(
+            recent_quarters=recent_quarters,
+            top_n=top_n,
+            min_holders=min_holders,
+            min_total_value_usd=min_total_value_usd,
+            limit_cusips=(limit_cusips or None),
+        )
+        elapsed = round(time.perf_counter() - t0, 3)
+
+    _emit_run_event(
+        engine=engine,
+        run_id=run_id,
+        stage="enrich_done",
+        status="INFO",
+        message="Completed CUSIP enrichment",
+        metrics={
+            "runtime_sec": elapsed,
+            "scanned": summary.scanned,
+            "eligible": summary.eligible,
+            "matched": summary.matched,
+            "inserted_xwalk": summary.inserted_xwalk,
+            "inserted_identifiers": summary.inserted_identifiers,
+        },
+        log_file=log_file,
+    )
 
 
 def _refresh_aggregates() -> None:
@@ -270,6 +1000,47 @@ def main() -> None:
             recent_quarters=args.recent_quarters,
             min_holders=args.min_holders,
             min_total_value_usd=args.min_total_value_usd,
+        )
+    elif args.command == "update-incremental":
+        _update_incremental(
+            top_n=args.top_n,
+            ingest_limit=args.ingest_limit,
+            include_13dg=args.include_13dg,
+            resolve_quarters=args.resolve_quarters,
+            recent_quarters=args.recent_quarters,
+            min_holders=args.min_holders,
+            min_total_value_usd=args.min_total_value_usd,
+            skip_sync_tickers=args.skip_sync_tickers,
+            log_file=args.log_file,
+            alert_min_13f_pct=args.alert_min_13f_pct,
+            alert_min_bo_pct=args.alert_min_bo_pct,
+        )
+    elif args.command == "resume-post-ingest":
+        _resume_post_ingest(
+            batch_size=args.batch_size,
+            max_batches=args.max_batches,
+            recent_quarters=args.recent_quarters,
+            min_holders=args.min_holders,
+            min_total_value_usd=args.min_total_value_usd,
+            top_n=args.top_n,
+            log_file=args.log_file,
+            skip_sync_tickers=args.skip_sync_tickers,
+            alert_min_13f_pct=args.alert_min_13f_pct,
+            alert_min_bo_pct=args.alert_min_bo_pct,
+        )
+    elif args.command == "ingest-cik-list":
+        _ingest_cik_list(file_path=args.file, limit=args.limit, include_13dg=args.include_13dg)
+    elif args.command == "discover-13f-ciks":
+        _discover_13f_ciks(quarters=args.quarters, max_ciks=args.max_ciks, out_path=args.out)
+    elif args.command == "enrich-cusips":
+        _enrich_cusips(
+            recent_quarters=args.recent_quarters,
+            top_n=args.top_n,
+            min_holders=args.min_holders,
+            min_total_value_usd=args.min_total_value_usd,
+            provider_name=args.provider,
+            limit_cusips=args.limit_cusips,
+            log_file=args.log_file,
         )
     elif args.command == "refresh-aggregates":
         _refresh_aggregates()

@@ -15,12 +15,12 @@ export default function HomePage() {
         <div className="card">
           <h3>Security Lens</h3>
           <p>Quarterly net accumulation chart, top holders with QoQ change, and 13D/G events feed.</p>
-          <Link href="/security/AAPL">Open sample security</Link>
+          <Link href="/security">Search securities</Link>
         </div>
         <div className="card">
           <h3>Manager Lens</h3>
           <p>Treemap of current exposures plus top buys and sells.</p>
-          <Link href="/manager/1">Open sample manager</Link>
+          <Link href="/manager">Browse managers</Link>
         </div>
       </div>
 

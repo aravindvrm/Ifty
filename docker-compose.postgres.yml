@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: flowtracker-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flow
+      POSTGRES_PASSWORD: flow
+      POSTGRES_DB: flowdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata_flowtracker:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flow -d flowdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata_flowtracker:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -11,6 +12,8 @@ class ResolveSummary:
     bootstrap_created: int = 0
     holdings_mapped: int = 0
     bo_events_mapped: int = 0
+    holdings_batches: list[dict] | None = None
+    bo_batches: list[dict] | None = None
 
 
 @dataclass
@@ -23,6 +26,8 @@ class ResolutionCandidate:
 class SecurityResolverService:
     def __init__(self, db: Session) -> None:
         self.db = db
+        bind = getattr(db, "bind", None)
+        self._dialect = (bind.dialect.name if bind is not None else "").lower()
 
     @staticmethod
     def _normalize_cusip(value: str | None) -> str | None:
@@ -39,12 +44,120 @@ class SecurityResolverService:
         return cleaned or None
 
     def bootstrap_security_master_from_filings(self, limit: int | None = None) -> int:
+        if self._dialect == "postgresql":
+            limit_clause = ""
+            params: dict[str, int] = {}
+            if limit is not None:
+                limit_clause = "LIMIT :limit_n"
+                params["limit_n"] = limit
+
+            inserted = self.db.execute(
+                text(
+                    f"""
+                    WITH anchor_issuer AS (
+                      INSERT INTO issuers (issuer_name, status)
+                      SELECT 'CUSIP_ANCHOR_ISSUER', 'ACTIVE'
+                      WHERE NOT EXISTS (
+                        SELECT 1 FROM issuers WHERE issuer_name = 'CUSIP_ANCHOR_ISSUER'
+                      )
+                      RETURNING issuer_id
+                    ),
+                    issuer_pick AS (
+                      SELECT issuer_id FROM anchor_issuer
+                      UNION ALL
+                      SELECT issuer_id
+                      FROM issuers
+                      WHERE issuer_name = 'CUSIP_ANCHOR_ISSUER'
+                      ORDER BY issuer_id
+                      LIMIT 1
+                    ),
+                    normalized AS (
+                      SELECT DISTINCT cusip_norm
+                      FROM (
+                        SELECT SUBSTRING(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) FROM 1 FOR 9) AS cusip_norm
+                        FROM holdings_13f
+                        WHERE cusip_raw IS NOT NULL
+                          AND TRIM(cusip_raw) <> ''
+                          AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) >= 8
+                        UNION
+                        SELECT SUBSTRING(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) FROM 1 FOR 9) AS cusip_norm
+                        FROM beneficial_ownership_events
+                        WHERE cusip_raw IS NOT NULL
+                          AND TRIM(cusip_raw) <> ''
+                          AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) >= 8
+                      ) all_cusips
+                      ORDER BY 1
+                      {limit_clause}
+                    ),
+                    missing AS (
+                      SELECT n.cusip_norm
+                      FROM normalized n
+                      LEFT JOIN security_identifiers si
+                        ON si.id_type = 'CUSIP'
+                       AND si.id_value = n.cusip_norm
+                      WHERE si.identifier_id IS NULL
+                    ),
+                    alloc AS (
+                      SELECT
+                        m.cusip_norm,
+                        nextval('securities_security_id_seq') AS security_id
+                      FROM missing m
+                    ),
+                    ins_securities AS (
+                      INSERT INTO securities (
+                        security_id, issuer_id, instrument_type, security_name, share_class, active_from, is_active
+                      )
+                      SELECT
+                        a.security_id,
+                        (SELECT issuer_id FROM issuer_pick),
+                        'EQUITY',
+                        'CUSIP ' || a.cusip_norm,
+                        NULL,
+                        '1900-01-01',
+                        1
+                      FROM alloc a
+                      RETURNING security_id
+                    ),
+                    ins_identifiers AS (
+                      INSERT INTO security_identifiers (
+                        security_id, id_type, id_value, mic, valid_from, valid_to, source_system, confidence
+                      )
+                      SELECT
+                        a.security_id,
+                        'CUSIP',
+                        a.cusip_norm,
+                        NULL,
+                        '1900-01-01',
+                        NULL,
+                        'AUTO_BOOTSTRAP_CUSIP',
+                        1.0
+                      FROM alloc a
+                      ON CONFLICT (id_type, id_value) DO NOTHING
+                      RETURNING identifier_id
+                    )
+                    SELECT COUNT(*) FROM ins_identifiers
+                    """
+                ),
+                params,
+            ).scalar()
+            self.db.commit()
+            return int(inserted or 0)
+
         sql = """
             SELECT DISTINCT cusip_raw, issuer_name_raw, class_title_raw, report_date
-            FROM holdings_13f
-            WHERE security_id IS NULL
-              AND cusip_raw IS NOT NULL
-              AND TRIM(cusip_raw) <> ''
+            FROM (
+              SELECT cusip_raw, issuer_name_raw, class_title_raw, report_date
+              FROM holdings_13f
+              WHERE security_id IS NULL
+                AND cusip_raw IS NOT NULL
+                AND TRIM(cusip_raw) <> ''
+              UNION ALL
+              SELECT cusip_raw, issuer_name_raw, NULL AS class_title_raw, report_date
+              FROM beneficial_ownership_events
+              WHERE security_id IS NULL
+                AND cusip_raw IS NOT NULL
+                AND TRIM(cusip_raw) <> ''
+            ) src
             ORDER BY report_date DESC
         """
         if limit is not None:
@@ -83,10 +196,16 @@ class SecurityResolverService:
                 issuer_id = int(issuer["issuer_id"])
             else:
                 ins_issuer = self.db.execute(
-                    text("INSERT INTO issuers (issuer_name, status) VALUES (:issuer_name, 'ACTIVE')"),
+                    text(
+                        """
+                        INSERT INTO issuers (issuer_name, status)
+                        VALUES (:issuer_name, 'ACTIVE')
+                        RETURNING issuer_id
+                        """
+                    ),
                     {"issuer_name": issuer_name},
                 )
-                issuer_id = int(ins_issuer.lastrowid)
+                issuer_id = int(ins_issuer.scalar_one())
 
             security_name = issuer_name
             class_title = (row["class_title_raw"] or "").strip() or None
@@ -98,6 +217,7 @@ class SecurityResolverService:
                     ) VALUES (
                       :issuer_id, 'EQUITY', :security_name, :share_class, :active_from, 1
                     )
+                    RETURNING security_id
                     """
                 ),
                 {
@@ -107,7 +227,7 @@ class SecurityResolverService:
                     "active_from": row["report_date"],
                 },
             )
-            security_id = int(ins_security.lastrowid)
+            security_id = int(ins_security.scalar_one())
 
             self.db.execute(
                 text(
@@ -289,7 +409,89 @@ class SecurityResolverService:
 
         return self._issuer_class_lookup(issuer_name_raw=issuer_name_raw, class_title_raw=class_title_raw)
 
-    def resolve_13f(self, limit: int | None = None) -> int:
+    def resolve_13f(self, limit: int | None = None) -> tuple[int, list[dict]]:
+        if self._dialect == "postgresql":
+            quarter_sql = """
+                SELECT DISTINCT report_date
+                FROM holdings_13f
+                WHERE security_id IS NULL
+                  AND cusip_raw IS NOT NULL
+                  AND TRIM(cusip_raw) <> ''
+                ORDER BY report_date DESC
+            """
+            params: dict[str, int] = {}
+            if limit is not None:
+                quarter_sql += " LIMIT :limit_n"
+                params["limit_n"] = limit
+            quarters = [str(r[0]) for r in self.db.execute(text(quarter_sql), params).all()]
+            total_updated = 0
+            batches: list[dict] = []
+            for report_date in quarters:
+                eligible = int(
+                    self.db.execute(
+                        text(
+                            """
+                            SELECT COUNT(*)
+                            FROM holdings_13f
+                            WHERE security_id IS NULL
+                              AND report_date = :report_date
+                              AND cusip_raw IS NOT NULL
+                              AND TRIM(cusip_raw) <> ''
+                              AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) >= 8
+                            """
+                        ),
+                        {"report_date": report_date},
+                    ).scalar()
+                    or 0
+                )
+                t0 = time.perf_counter()
+                updated = int(
+                    self.db.execute(
+                        text(
+                            """
+                            WITH upd AS (
+                              UPDATE holdings_13f h
+                              SET security_id = si.security_id,
+                                  mapping_status = 'MAPPED',
+                                  mapping_confidence = 1.0
+                              FROM security_identifiers si
+                              WHERE h.security_id IS NULL
+                                AND h.report_date = :report_date
+                                AND h.cusip_raw IS NOT NULL
+                                AND TRIM(h.cusip_raw) <> ''
+                                AND si.id_type = 'CUSIP'
+                                AND si.id_value = SUBSTRING(
+                                  UPPER(REGEXP_REPLACE(TRIM(h.cusip_raw), '[^A-Z0-9]', '', 'g'))
+                                  FROM 1 FOR 9
+                                )
+                              RETURNING 1
+                            )
+                            SELECT COUNT(*) FROM upd
+                            """
+                        ),
+                        {"report_date": report_date},
+                    ).scalar()
+                    or 0
+                )
+                self.db.commit()
+                total_updated += updated
+                runtime_ms = int((time.perf_counter() - t0) * 1000)
+                batch = {
+                    "report_date": report_date,
+                    "eligible_rows": eligible,
+                    "updated_rows": updated,
+                    "runtime_ms": runtime_ms,
+                }
+                batches.append(batch)
+                print(
+                    "resolve_13f_batch "
+                    f"report_date={report_date} "
+                    f"eligible_rows={eligible} "
+                    f"updated_rows={updated} "
+                    f"runtime_ms={runtime_ms}"
+                )
+            return total_updated, batches
+
         sql = """
             SELECT holding_13f_id, cusip_raw, ticker_raw, report_date, issuer_name_raw, class_title_raw
             FROM holdings_13f
@@ -332,9 +534,140 @@ class SecurityResolverService:
             )
             mapped += 1
         self.db.commit()
-        return mapped
+        return mapped, []
 
-    def resolve_13dg(self, limit: int | None = None) -> int:
+    def resolve_13dg(self, limit: int | None = None) -> tuple[int, list[dict]]:
+        if self._dialect == "postgresql":
+            quarter_sql = """
+                SELECT DISTINCT report_date
+                FROM beneficial_ownership_events
+                WHERE security_id IS NULL
+                  AND cusip_raw IS NOT NULL
+                  AND TRIM(cusip_raw) <> ''
+                ORDER BY report_date DESC NULLS LAST
+            """
+            params: dict[str, int] = {}
+            if limit is not None:
+                quarter_sql += " LIMIT :limit_n"
+                params["limit_n"] = limit
+            quarters = [r[0] for r in self.db.execute(text(quarter_sql), params).all()]
+            total_updated = 0
+            batches: list[dict] = []
+            for report_date in quarters:
+                if report_date is None:
+                    eligible = int(
+                        self.db.execute(
+                            text(
+                                """
+                                SELECT COUNT(*)
+                                FROM beneficial_ownership_events
+                                WHERE security_id IS NULL
+                                  AND report_date IS NULL
+                                  AND cusip_raw IS NOT NULL
+                                  AND TRIM(cusip_raw) <> ''
+                                  AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) >= 8
+                                """
+                            )
+                        ).scalar()
+                        or 0
+                    )
+                else:
+                    p = {"report_date": report_date}
+                    eligible = int(
+                        self.db.execute(
+                            text(
+                                """
+                                SELECT COUNT(*)
+                                FROM beneficial_ownership_events
+                                WHERE security_id IS NULL
+                                  AND report_date = :report_date
+                                  AND cusip_raw IS NOT NULL
+                                  AND TRIM(cusip_raw) <> ''
+                                  AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) >= 8
+                                """
+                            ),
+                            p,
+                        ).scalar()
+                        or 0
+                    )
+                t0 = time.perf_counter()
+                if report_date is None:
+                    updated = int(
+                        self.db.execute(
+                            text(
+                                """
+                                WITH upd AS (
+                                  UPDATE beneficial_ownership_events b
+                                  SET security_id = si.security_id,
+                                      mapping_status = 'MAPPED',
+                                      mapping_confidence = 1.0
+                                  FROM security_identifiers si
+                                  WHERE b.security_id IS NULL
+                                    AND b.report_date IS NULL
+                                    AND b.cusip_raw IS NOT NULL
+                                    AND TRIM(b.cusip_raw) <> ''
+                                    AND si.id_type = 'CUSIP'
+                                    AND si.id_value = SUBSTRING(
+                                      UPPER(REGEXP_REPLACE(TRIM(b.cusip_raw), '[^A-Z0-9]', '', 'g'))
+                                      FROM 1 FOR 9
+                                    )
+                                  RETURNING 1
+                                )
+                                SELECT COUNT(*) FROM upd
+                                """
+                            )
+                        ).scalar()
+                        or 0
+                    )
+                else:
+                    p = {"report_date": report_date}
+                    updated = int(
+                        self.db.execute(
+                            text(
+                                """
+                                WITH upd AS (
+                                  UPDATE beneficial_ownership_events b
+                                  SET security_id = si.security_id,
+                                      mapping_status = 'MAPPED',
+                                      mapping_confidence = 1.0
+                                  FROM security_identifiers si
+                                  WHERE b.security_id IS NULL
+                                    AND b.report_date = :report_date
+                                    AND b.cusip_raw IS NOT NULL
+                                    AND TRIM(b.cusip_raw) <> ''
+                                    AND si.id_type = 'CUSIP'
+                                    AND si.id_value = SUBSTRING(
+                                      UPPER(REGEXP_REPLACE(TRIM(b.cusip_raw), '[^A-Z0-9]', '', 'g'))
+                                      FROM 1 FOR 9
+                                    )
+                                  RETURNING 1
+                                )
+                                SELECT COUNT(*) FROM upd
+                                """
+                            ),
+                            p,
+                        ).scalar()
+                        or 0
+                    )
+                self.db.commit()
+                total_updated += updated
+                runtime_ms = int((time.perf_counter() - t0) * 1000)
+                batch = {
+                    "report_date": report_date,
+                    "eligible_rows": eligible,
+                    "updated_rows": updated,
+                    "runtime_ms": runtime_ms,
+                }
+                batches.append(batch)
+                print(
+                    "resolve_13dg_batch "
+                    f"report_date={report_date} "
+                    f"eligible_rows={eligible} "
+                    f"updated_rows={updated} "
+                    f"runtime_ms={runtime_ms}"
+                )
+            return total_updated, batches
+
         sql = """
             SELECT bo_event_id, cusip_raw, ticker_raw, report_date, issuer_name_raw
             FROM beneficial_ownership_events
@@ -376,14 +709,91 @@ class SecurityResolverService:
             )
             mapped += 1
         self.db.commit()
-        return mapped
+        return mapped, []
 
     def resolve_all(self, limit: int | None = None) -> ResolveSummary:
+        if self._dialect == "postgresql":
+            self.db.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS ux_identifiers_type_value
+                    ON security_identifiers (id_type, id_value)
+                    """
+                )
+            )
+            self.db.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_13f_report_date
+                    ON holdings_13f (report_date)
+                    """
+                )
+            )
+            self.db.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_13f_security_report_date
+                    ON holdings_13f (security_id, report_date)
+                    """
+                )
+            )
+            self.db.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_ident_idtype_idvalue
+                    ON security_identifiers (id_type, id_value)
+                    """
+                )
+            )
+            self.db.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_13f_unmapped_cusip
+                    ON holdings_13f (report_date DESC, holding_13f_id DESC)
+                    WHERE security_id IS NULL AND cusip_raw IS NOT NULL
+                    """
+                )
+            )
+            self.db.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_bo_unmapped_cusip
+                    ON beneficial_ownership_events (report_date DESC, bo_event_id DESC)
+                    WHERE security_id IS NULL AND cusip_raw IS NOT NULL
+                    """
+                )
+            )
+            self.db.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_ident_cusip_norm
+                    ON security_identifiers (
+                      UPPER(REGEXP_REPLACE(id_value, '[^A-Z0-9]', '', 'g')),
+                      valid_from,
+                      valid_to
+                    )
+                    WHERE id_type = 'CUSIP'
+                    """
+                )
+            )
+            self.db.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_13f_cusip_norm
+                    ON holdings_13f (UPPER(REGEXP_REPLACE(cusip_raw, '[^A-Z0-9]', '', 'g')), report_date)
+                    WHERE cusip_raw IS NOT NULL
+                    """
+                )
+            )
+            self.db.commit()
+
         bootstrap_created = self.bootstrap_security_master_from_filings(limit=limit)
-        holdings_mapped = self.resolve_13f(limit=limit)
-        bo_events_mapped = self.resolve_13dg(limit=limit)
+        holdings_mapped, holdings_batches = self.resolve_13f(limit=limit)
+        bo_events_mapped, bo_batches = self.resolve_13dg(limit=limit)
         return ResolveSummary(
             bootstrap_created=bootstrap_created,
             holdings_mapped=holdings_mapped,
             bo_events_mapped=bo_events_mapped,
+            holdings_batches=holdings_batches,
+            bo_batches=bo_batches,
         )

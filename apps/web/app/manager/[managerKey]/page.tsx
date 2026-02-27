@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { PositionTreemap } from "@/components/charts";
 import { getManager } from "@/lib/api";
 import { fmtNumber, fmtPct, fmtUsdThousands } from "@/lib/format";
@@ -30,6 +32,9 @@ export default async function ManagerPage({ params }: Props) {
       <div className="card">
         <h1 className="page-title">Manager: {manager.manager.manager_name}</h1>
         <p className="page-subtitle">CIK {manager.manager.cik} • Latest quarter {manager.latest_quarter ?? "-"}</p>
+        <div className="input-row">
+          <Link href="/manager">Back to manager directory</Link>
+        </div>
       </div>
 
       <div className="metric-row">
@@ -67,12 +72,18 @@ export default async function ManagerPage({ params }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {manager.top_buys.map((row, idx) => (
-                  <tr key={`${row.security_id}-${idx}`}>
-                    <td>{row.issuer_name_raw ?? "Unknown"}</td>
-                    <td className="badge-pos">{fmtNumber(row.delta_val, 2)}</td>
+                {manager.top_buys.length === 0 ? (
+                  <tr>
+                    <td colSpan={2}>No buys in current comparison window.</td>
                   </tr>
-                ))}
+                ) : (
+                  manager.top_buys.map((row, idx) => (
+                    <tr key={`${row.security_id}-${idx}`}>
+                      <td>{row.issuer_name_raw ?? "Unknown"}</td>
+                      <td className="badge-pos">{fmtNumber(row.delta_val, 2)}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -89,12 +100,18 @@ export default async function ManagerPage({ params }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {manager.top_sells.map((row, idx) => (
-                  <tr key={`${row.security_id}-${idx}`}>
-                    <td>{row.issuer_name_raw ?? "Unknown"}</td>
-                    <td className="badge-neg">{fmtNumber(row.delta_val, 2)}</td>
+                {manager.top_sells.length === 0 ? (
+                  <tr>
+                    <td colSpan={2}>No sells in current comparison window.</td>
                   </tr>
-                ))}
+                ) : (
+                  manager.top_sells.map((row, idx) => (
+                    <tr key={`${row.security_id}-${idx}`}>
+                      <td>{row.issuer_name_raw ?? "Unknown"}</td>
+                      <td className="badge-neg">{fmtNumber(row.delta_val, 2)}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -112,16 +129,22 @@ export default async function ManagerPage({ params }: Props) {
                 <th>Value</th>
               </tr>
             </thead>
-            <tbody>
-              {manager.top_positions.map((row, idx) => (
-                <tr key={`${row.security_id}-${idx}`}>
-                  <td>{row.issuer_name_raw ?? "Unknown"}</td>
-                  <td>{fmtNumber(row.shares)}</td>
-                  <td>{fmtUsdThousands(row.value_usd_thousands)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              <tbody>
+                {manager.top_positions.length === 0 ? (
+                  <tr>
+                    <td colSpan={3}>No mapped positions available.</td>
+                  </tr>
+                ) : (
+                  manager.top_positions.map((row, idx) => (
+                    <tr key={`${row.security_id}-${idx}`}>
+                      <td>{row.issuer_name_raw ?? "Unknown"}</td>
+                      <td>{fmtNumber(row.shares)}</td>
+                      <td>{fmtUsdThousands(row.value_usd_thousands)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
         </div>
       </div>
     </div>

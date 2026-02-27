@@ -84,6 +84,7 @@ export type AccumulationResponse = {
   rows: Array<{
     security_id: number;
     security_name: string | null;
+    ticker?: string | null;
     instrument_type: string | null;
     net_holder_count: number;
     net_shares: number;
@@ -95,6 +96,7 @@ export type AccumulationHistoryResponse = {
   rows: Array<{
     security_id: number;
     security_name: string | null;
+    ticker?: string | null;
     series: Array<{
       report_date: string;
       net_shares: number;
@@ -150,6 +152,33 @@ export type ApiUsageResponse = {
   }>;
 };
 
+export type PipelineRunEvent = {
+  run_id: string;
+  event_ts: string;
+  stage: string;
+  status: string;
+  message: string | null;
+  metrics_json: string | null;
+  metrics: Record<string, unknown>;
+};
+
+export type PipelineRunLatestResponse = {
+  run_id: string | null;
+  current: PipelineRunEvent | null;
+  events: PipelineRunEvent[];
+};
+
+export type SecuritySearchResponse = {
+  query: string;
+  rows: Array<{
+    security_id: number;
+    security_name: string | null;
+    issuer_name: string | null;
+    ticker: string | null;
+    mic: string | null;
+  }>;
+};
+
 export function getSecurity(ticker: string) {
   return requestJson<SecurityPageResponse>(`/security/${encodeURIComponent(ticker.toUpperCase())}`);
 }
@@ -184,4 +213,14 @@ export function getManagerUniverse(limitN = 300) {
 
 export function getApiUsage(days = 7, limitN = 100) {
   return requestJson<ApiUsageResponse>(`/ops/api-usage?days=${days}&limit_n=${limitN}`);
+}
+
+export function getPipelineRunLatest() {
+  return requestJson<PipelineRunLatestResponse>("/ops/pipeline-runs/latest");
+}
+
+export function searchSecurities(query: string, limitN = 20) {
+  return requestJson<SecuritySearchResponse>(
+    `/security/search?q=${encodeURIComponent(query)}&limit_n=${limitN}`
+  );
 }

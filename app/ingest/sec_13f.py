@@ -150,6 +150,7 @@ class Sec13FIngestionService:
                 """
                 INSERT INTO managers (cik, manager_name, normalized_name)
                 VALUES (:cik, :manager_name, :normalized_name)
+                RETURNING manager_id
                 """
             ),
             {
@@ -158,8 +159,9 @@ class Sec13FIngestionService:
                 "normalized_name": manager_name.upper(),
             },
         )
+        manager_id = int(result.scalar_one())
         self.db.commit()
-        return int(result.lastrowid)
+        return manager_id
 
     def _upsert_filing(
         self,
@@ -191,6 +193,7 @@ class Sec13FIngestionService:
                 ) VALUES (
                   :accession_no, :form_type, :cik, :manager_id, :filed_at, :period_end_date, :sec_url, :is_amendment
                 )
+                RETURNING filing_id
                 """
             ),
             {
@@ -204,8 +207,9 @@ class Sec13FIngestionService:
                 "is_amendment": _is_amendment(form_type),
             },
         )
+        filing_id = int(result.scalar_one())
         self.db.commit()
-        return int(result.lastrowid)
+        return filing_id
 
     def _candidate_infotable_paths(self, filing_index: dict) -> list[str]:
         directory = filing_index.get("directory", {})
@@ -256,7 +260,7 @@ class Sec13FIngestionService:
             result = self.db.execute(
                 text(
                     """
-                    INSERT OR IGNORE INTO holdings_13f (
+                    INSERT INTO holdings_13f (
                       filing_id, manager_id, security_id, report_date,
                       issuer_name_raw, class_title_raw, cusip_raw, ticker_raw,
                       value_usd_thousands, shares, share_type, option_type,
@@ -271,6 +275,7 @@ class Sec13FIngestionService:
                       :voting_sole, :voting_shared, :voting_none,
                       :row_hash, 'UNMAPPED', NULL
                     )
+                    ON CONFLICT (filing_id, row_hash) DO NOTHING
                     """
                 ),
                 {

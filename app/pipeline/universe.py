@@ -61,7 +61,7 @@ class ManagerUniverseService:
                     INSERT INTO manager_universe (
                       manager_id, rank, total_value_usd, as_of_report_date, source, is_active, updated_at
                     ) VALUES (
-                      :manager_id, :rank, :total_value_usd, :as_of_report_date, 'HOLDINGS_13F', 1, datetime('now')
+                      :manager_id, :rank, :total_value_usd, :as_of_report_date, 'HOLDINGS_13F', 1, CURRENT_TIMESTAMP
                     )
                     """
                 ),
@@ -89,4 +89,3 @@ class ManagerUniverseService:
             )
         ).all()
         return [str(x[0]) for x in rows if x[0]]
-

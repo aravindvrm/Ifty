@@ -66,12 +66,14 @@ class Sec13DGIngestionService:
                 """
                 INSERT INTO managers (cik, manager_name, normalized_name)
                 VALUES (:cik, :manager_name, :normalized_name)
+                RETURNING manager_id
                 """
             ),
             {"cik": cik, "manager_name": manager_name, "normalized_name": manager_name.upper()},
         )
+        manager_id = int(result.scalar_one())
         self.db.commit()
-        return int(result.lastrowid)
+        return manager_id
 
     def _upsert_filing(
         self,
@@ -103,6 +105,7 @@ class Sec13DGIngestionService:
                 ) VALUES (
                   :accession_no, :form_type, :cik, :manager_id, :filed_at, :period_end_date, :sec_url, :is_amendment
                 )
+                RETURNING filing_id
                 """
             ),
             {
@@ -116,8 +119,9 @@ class Sec13DGIngestionService:
                 "is_amendment": 1 if form_type.endswith("/A") else 0,
             },
         )
+        filing_id = int(result.scalar_one())
         self.db.commit()
-        return int(result.lastrowid)
+        return filing_id
 
     def _classify_event(
         self,
@@ -238,4 +242,3 @@ class Sec13DGIngestionService:
                 continue
 
         return result
-

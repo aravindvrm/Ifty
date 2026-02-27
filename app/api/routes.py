@@ -1,3 +1,6 @@
+from datetime import UTC, datetime, timedelta
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -10,6 +13,9 @@ from app.ingest.sec_13dg import Sec13DGIngestionService
 from app.pipeline.universe import ManagerUniverseService
 from app.resolution.security_resolver import SecurityResolverService
 from app.resolution.ticker_enrichment import TickerEnrichmentService
+from app.enrichment.cusip_to_ticker import CusipToTickerEnrichmentService, NoopCusipProvider, OpenFigiCusipProvider
+from app.clients.rate_limit import ProviderRateLimiter
+from app.config import get_settings
 
 router = APIRouter()
 
@@ -99,13 +105,15 @@ def ingest_sec_13dg(
 def resolve_mappings(
     limit: int = Query(0, ge=0, le=100000),
     db: Session = Depends(get_db),
-) -> dict[str, int]:
+) -> dict:
     service = SecurityResolverService(db=db)
     summary = service.resolve_all(limit=limit or None)
     return {
         "bootstrap_created": summary.bootstrap_created,
         "holdings_mapped": summary.holdings_mapped,
         "bo_events_mapped": summary.bo_events_mapped,
+        "holdings_batches": summary.holdings_batches or [],
+        "bo_batches": summary.bo_batches or [],
     }
 
 
@@ -149,6 +157,41 @@ def refresh_universe(
     return {"as_of_report_date": summary.as_of_report_date, "selected": summary.selected}
 
 
+@router.post("/jobs/enrich-cusips")
+def enrich_cusips(
+    recent_quarters: int = Query(4, ge=1, le=16),
+    top_n: int = Query(300, ge=1, le=5000),
+    min_holders: int = Query(3, ge=1, le=1000),
+    min_total_value_usd: float = Query(250_000_000.0, ge=0),
+    provider: str = Query("noop", pattern="^(noop|openfigi)$"),
+    limit_cusips: int = Query(0, ge=0, le=200000),
+    db: Session = Depends(get_db),
+) -> dict:
+    if provider == "openfigi":
+        settings = get_settings()
+        limiter = ProviderRateLimiter()
+        rpm = float(settings.openfigi_requests_per_minute)
+        limiter.register(provider="OPENFIGI", rate_per_sec=max(0.01, rpm / 60.0))
+        p = OpenFigiCusipProvider(db=db, limiter=limiter)
+    else:
+        p = NoopCusipProvider()
+
+    summary = CusipToTickerEnrichmentService(db=db, provider=p).enrich_in_scope(
+        recent_quarters=recent_quarters,
+        top_n=top_n,
+        min_holders=min_holders,
+        min_total_value_usd=min_total_value_usd,
+        limit_cusips=(limit_cusips or None),
+    )
+    return {
+        "scanned": summary.scanned,
+        "eligible": summary.eligible,
+        "matched": summary.matched,
+        "inserted_xwalk": summary.inserted_xwalk,
+        "inserted_identifiers": summary.inserted_identifiers,
+    }
+
+
 @router.get("/ops/manager-universe")
 def manager_universe(
     limit_n: int = Query(300, ge=1, le=5000),
@@ -182,6 +225,7 @@ def api_usage(
     limit_n: int = Query(200, ge=1, le=2000),
     db: Session = Depends(get_db),
 ) -> dict:
+    cutoff = (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     summary = db.execute(
         text(
             """
@@ -192,12 +236,12 @@ def api_usage(
               SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS error_calls,
               AVG(COALESCE(latency_ms, 0)) AS avg_latency_ms
             FROM api_request_log
-            WHERE request_ts >= datetime('now', :days_back)
+            WHERE request_ts >= :cutoff
             GROUP BY provider
             ORDER BY calls DESC
             """
         ),
-        {"days_back": f"-{days} day"},
+        {"cutoff": cutoff},
     ).mappings().all()
 
     recent = db.execute(
@@ -212,6 +256,50 @@ def api_usage(
         {"limit_n": limit_n},
     ).mappings().all()
     return {"summary": [dict(x) for x in summary], "recent": [dict(x) for x in recent]}
+
+
+@router.get("/ops/pipeline-runs/latest")
+def pipeline_runs_latest(
+    db: Session = Depends(get_db),
+) -> dict:
+    row = db.execute(
+        text(
+            """
+            SELECT run_id
+            FROM pipeline_run_events
+            ORDER BY event_ts DESC
+            LIMIT 1
+            """
+        )
+    ).mappings().first()
+    if not row:
+        return {"run_id": None, "events": []}
+    run_id = str(row["run_id"])
+    events = db.execute(
+        text(
+            """
+            SELECT run_id, event_ts, stage, status, message, metrics_json
+            FROM pipeline_run_events
+            WHERE run_id = :run_id
+            ORDER BY event_ts
+            """
+        ),
+        {"run_id": run_id},
+    ).mappings().all()
+    parsed_events = []
+    for event in events:
+        row_dict = dict(event)
+        metrics_raw = row_dict.get("metrics_json")
+        if isinstance(metrics_raw, str) and metrics_raw:
+            try:
+                row_dict["metrics"] = json.loads(metrics_raw)
+            except Exception:
+                row_dict["metrics"] = {"_raw": metrics_raw}
+        else:
+            row_dict["metrics"] = {}
+        parsed_events.append(row_dict)
+    current = parsed_events[-1] if parsed_events else None
+    return {"run_id": run_id, "current": current, "events": parsed_events}
 
 
 @router.get("/security/search")
@@ -749,7 +837,16 @@ def screener_accumulation(
               (a.holders_added - a.holders_exited) AS net_holder_count,
               a.net_shares,
               s.security_name,
-              s.instrument_type
+              s.instrument_type,
+              (
+                SELECT si.id_value
+                FROM security_identifiers si
+                WHERE si.security_id = a.security_id
+                  AND si.id_type = 'TICKER'
+                  AND (si.valid_to IS NULL OR date('now') < date(si.valid_to))
+                ORDER BY si.valid_from DESC
+                LIMIT 1
+              ) AS ticker
             FROM agg a
             LEFT JOIN securities s ON s.security_id = a.security_id
             ORDER BY net_holder_count DESC, net_shares DESC
@@ -872,7 +969,21 @@ def screener_accumulation_history(
               ORDER BY net_holder_count DESC, net_shares DESC
               LIMIT :limit_n
             )
-            SELECT a.security_id, a.report_date, a.net_shares, a.net_holder_count, s.security_name
+            SELECT
+              a.security_id,
+              a.report_date,
+              a.net_shares,
+              a.net_holder_count,
+              s.security_name,
+              (
+                SELECT si.id_value
+                FROM security_identifiers si
+                WHERE si.security_id = a.security_id
+                  AND si.id_type = 'TICKER'
+                  AND (si.valid_to IS NULL OR date('now') < date(si.valid_to))
+                ORDER BY si.valid_from DESC
+                LIMIT 1
+              ) AS ticker
             FROM agg a
             JOIN latest l ON l.security_id = a.security_id
             LEFT JOIN securities s ON s.security_id = a.security_id
@@ -890,6 +1001,7 @@ def screener_accumulation_history(
             {
                 "security_id": sid,
                 "security_name": row["security_name"],
+                "ticker": row["ticker"],
                 "series": [],
             },
         )

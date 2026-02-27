@@ -130,6 +130,94 @@ def test_security_resolver_bootstraps_from_unmapped_holdings(db_session):
     assert created["id_value"] == "99999999"
 
 
+def test_security_resolver_bootstrap_is_idempotent(db_session):
+    db_session.execute(text("INSERT INTO managers (manager_id, cik, manager_name) VALUES (1, '0000000001', 'Mgr')"))
+    db_session.execute(
+        text(
+            """
+                INSERT INTO filings (filing_id, accession_no, form_type, cik, manager_id, filed_at, period_end_date, sec_url, is_amendment)
+                VALUES
+                  (1, 'acc-bootstrap-11', '13F-HR', '0000000001', 1, '2025-08-14', '2025-09-30', 'https://x', 0),
+                  (2, 'acc-bootstrap-12', '13F-HR', '0000000001', 1, '2025-11-14', '2025-09-30', 'https://y', 0)
+                """
+            )
+        )
+    db_session.execute(
+        text(
+            """
+                INSERT INTO holdings_13f (
+                  holding_13f_id, filing_id, manager_id, security_id, report_date,
+                  issuer_name_raw, class_title_raw, cusip_raw, ticker_raw, value_usd_thousands, shares, share_type, row_hash, mapping_status
+                ) VALUES
+                  (1, 1, 1, NULL, '2025-09-30', 'Issuer Bootstrap', 'COM', '12345678', NULL, 100, 10, 'SH', 'boot11', 'UNMAPPED'),
+                  (2, 2, 1, NULL, '2025-09-30', 'Issuer Bootstrap', 'COM', '12345678', NULL, 110, 11, 'SH', 'boot12', 'UNMAPPED')
+                """
+            )
+        )
+    db_session.commit()
+
+    service = SecurityResolverService(db_session)
+    first = service.resolve_all()
+    second = service.resolve_all()
+
+    assert first.holdings_mapped == 2
+    assert second.holdings_mapped == 0
+
+    mapped_count = db_session.execute(
+        text("SELECT COUNT(*) FROM holdings_13f WHERE security_id IS NOT NULL AND mapping_status = 'MAPPED'")
+    ).scalar_one()
+    cusip_identifier_count = db_session.execute(
+        text("SELECT COUNT(*) FROM security_identifiers WHERE id_type = 'CUSIP' AND id_value = '12345678'")
+    ).scalar_one()
+    assert mapped_count == 2
+    assert cusip_identifier_count == 1
+
+
+def test_security_resolver_bootstraps_and_maps_bo_cusip_only(db_session):
+    db_session.execute(text("INSERT INTO managers (manager_id, cik, manager_name) VALUES (1, '0000000001', 'Mgr')"))
+    db_session.execute(
+        text(
+            """
+            INSERT INTO filings (filing_id, accession_no, form_type, cik, manager_id, filed_at, period_end_date, sec_url, is_amendment)
+            VALUES (1, 'acc-13dg-boot', 'SC 13D', '0000000001', 1, '2025-11-20', '2025-11-19', 'https://z', 0)
+            """
+        )
+    )
+    db_session.execute(
+        text(
+            """
+            INSERT INTO beneficial_ownership_events (
+              bo_event_id, filing_id, manager_id, security_id, report_date, event_type,
+              percent_beneficial_owned, cusip_raw, issuer_name_raw, ticker_raw, mapping_status
+            ) VALUES (
+              1, 1, 1, NULL, '2025-11-19', 'NEW_5PCT',
+              6.5, '88888888', 'Issuer BO', NULL, 'UNMAPPED'
+            )
+            """
+        )
+    )
+    db_session.commit()
+
+    service = SecurityResolverService(db_session)
+    summary = service.resolve_all()
+    assert summary.bo_events_mapped == 1
+
+    mapped_event = db_session.execute(
+        text(
+            """
+            SELECT b.security_id, b.mapping_status, si.id_type, si.id_value
+            FROM beneficial_ownership_events b
+            JOIN security_identifiers si ON si.security_id = b.security_id
+            WHERE b.bo_event_id = 1
+            """
+        )
+    ).mappings().first()
+    assert mapped_event is not None
+    assert mapped_event["mapping_status"] == "MAPPED"
+    assert mapped_event["id_type"] == "CUSIP"
+    assert mapped_event["id_value"] == "88888888"
+
+
 def test_aggregate_refresh_populates_tables(db_session):
     db_session.execute(
         text(

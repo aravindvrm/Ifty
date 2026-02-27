@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     sec_www_base_url: str = "https://www.sec.gov"
     sec_burst_per_second: int = 8
     request_timeout_seconds: float = 20.0
+    openfigi_api_key: str = ""
+    openfigi_base_url: str = "https://api.openfigi.com/v3/mapping"
+    openfigi_requests_per_minute: int = 20
+    openfigi_batch_size: int = 50
 
 
 @lru_cache

@@ -1,0 +1,2 @@
+{"ts":"2026-02-26T20:19:21Z","run_id":"enrich-20260226T201921Z","stage":"enrich_start","status":"INFO","message":"Starting CUSIP enrichment","metrics":{"provider":"openfigi","recent_quarters":4,"top_n":300,"min_holders":3,"min_total_value_usd":250000000.0,"limit_cusips":0}}
+{"ts":"2026-02-26T21:38:39Z","run_id":"enrich-20260226T201921Z","stage":"enrich_done","status":"INFO","message":"Completed CUSIP enrichment","metrics":{"runtime_sec":4757.485,"scanned":15561,"eligible":15561,"matched":9028,"inserted_xwalk":15561,"inserted_identifiers":9028}}

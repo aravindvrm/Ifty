@@ -58,6 +58,8 @@ ON security_identifiers (id_type, id_value, mic, valid_from, valid_to);
 
 CREATE INDEX IF NOT EXISTS ix_identifiers_security
 ON security_identifiers (security_id, id_type);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_identifiers_type_value
+ON security_identifiers (id_type, id_value);
 
 -- This prevents exact duplicate version rows.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_identifiers_version
@@ -186,6 +188,8 @@ ON holdings_13f (manager_id, security_id, report_date);
 
 CREATE INDEX IF NOT EXISTS ix_13f_security_qtr
 ON holdings_13f (security_id, report_date);
+CREATE INDEX IF NOT EXISTS ix_13f_report_date
+ON holdings_13f (report_date);
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_13f_row_dedup
 ON holdings_13f (filing_id, row_hash);
@@ -238,6 +242,35 @@ CREATE TABLE IF NOT EXISTS api_request_log (
 
 CREATE INDEX IF NOT EXISTS ix_api_log_provider_ts
 ON api_request_log (provider, request_ts);
+
+-- CUSIP -> ticker enrichment cache (provider-fed crosswalk).
+CREATE TABLE IF NOT EXISTS cusip_ticker_xwalk (
+  cusip TEXT PRIMARY KEY,
+  ticker TEXT,
+  figi TEXT,
+  name TEXT,
+  mic TEXT,
+  source TEXT NOT NULL,
+  confidence REAL NOT NULL DEFAULT 0.5 CHECK (confidence >= 0.0 AND confidence <= 1.0),
+  first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS ix_cusip_xwalk_ticker
+ON cusip_ticker_xwalk (ticker);
+
+-- Pipeline observability events.
+CREATE TABLE IF NOT EXISTS pipeline_run_events (
+  run_id TEXT NOT NULL,
+  event_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  stage TEXT NOT NULL,
+  status TEXT NOT NULL,
+  message TEXT,
+  metrics_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS ix_pipeline_events_run_ts
+ON pipeline_run_events (run_id, event_ts);
 
 -- Materialized-like cache tables (rebuilt by jobs) for fast UI reads.
 CREATE TABLE IF NOT EXISTS agg_security_quarter (

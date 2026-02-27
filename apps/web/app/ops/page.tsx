@@ -1,8 +1,35 @@
-import { getApiUsage, getManagerUniverse } from "@/lib/api";
+import { getApiUsage, getManagerUniverse, getPipelineRunLatest } from "@/lib/api";
 import { fmtNumber } from "@/lib/format";
+import { OpsControls } from "@/components/ops-controls";
 
 export default async function OpsPage() {
-  const [universe, usage] = await Promise.all([getManagerUniverse(300), getApiUsage(7, 100)]);
+  let universe;
+  let usage;
+  let pipeline;
+  try {
+    [universe, usage, pipeline] = await Promise.all([getManagerUniverse(300), getApiUsage(7, 100), getPipelineRunLatest()]);
+  } catch (error) {
+    return (
+      <div className="card">
+        <h1 className="page-title">Ops Console</h1>
+        <p className="page-subtitle">Failed to load ops data.</p>
+        <pre>{String(error)}</pre>
+      </div>
+    );
+  }
+
+  const current = pipeline.current;
+  const currentMetrics = (current?.metrics ?? {}) as Record<string, unknown>;
+  const latestCountsEvent =
+    [...pipeline.events].reverse().find((event) => {
+      const m = (event.metrics ?? {}) as Record<string, unknown>;
+      return !!m["final_counts"] || !!m["counts"];
+    }) ?? current;
+  const latestCountsMetrics = ((latestCountsEvent?.metrics ?? {}) as Record<string, unknown>) ?? {};
+  const finalCounts =
+    (latestCountsMetrics["final_counts"] as Record<string, unknown> | undefined) ??
+    (latestCountsMetrics["counts"] as Record<string, unknown> | undefined) ??
+    {};
 
   return (
     <div className="stack">
@@ -18,6 +45,57 @@ export default async function OpsPage() {
         <pre>
 python -m app.cli pipeline-run --top-n 300 --ingest-limit 20 --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000
         </pre>
+        <pre>
+python -m app.cli update-incremental --top-n 300 --ingest-limit 20 --resolve-quarters 6 --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000 --log-file logs/incremental.jsonl
+        </pre>
+      </div>
+
+      <OpsControls />
+
+      <div className="card">
+        <h3>Latest Pipeline Run</h3>
+        {pipeline.run_id ? (
+          <div className="table-wrap">
+            <table className="table">
+              <tbody>
+                <tr>
+                  <th>Run ID</th>
+                  <td>{pipeline.run_id}</td>
+                </tr>
+                <tr>
+                  <th>Current Stage</th>
+                  <td>{current?.stage ?? "-"}</td>
+                </tr>
+                <tr>
+                  <th>Status</th>
+                  <td>{current?.status ?? "-"}</td>
+                </tr>
+                <tr>
+                  <th>Message</th>
+                  <td>{current?.message ?? "-"}</td>
+                </tr>
+                <tr>
+                  <th>Mapped 13F</th>
+                  <td>{fmtNumber(Number(finalCounts["mapped_13f"] ?? 0))}</td>
+                </tr>
+                <tr>
+                  <th>Unmapped 13F</th>
+                  <td>{fmtNumber(Number(finalCounts["unmapped_13f"] ?? 0))}</td>
+                </tr>
+                <tr>
+                  <th>Mapped BO</th>
+                  <td>{fmtNumber(Number(finalCounts["mapped_bo"] ?? 0))}</td>
+                </tr>
+                <tr>
+                  <th>Unmapped BO</th>
+                  <td>{fmtNumber(Number(finalCounts["unmapped_bo"] ?? 0))}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p>No pipeline runs logged yet.</p>
+        )}
       </div>
 
       <div className="card">

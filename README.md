@@ -13,6 +13,7 @@ pip install -e .
 ```bash
 cp .env.example .env
 ```
+Use repo-root `.env` as the single backend config source (`API_DB_URL`, `SEC_USER_AGENT`).
 
 3. Initialize SQLite schema:
 ```bash
@@ -58,6 +59,72 @@ python -m app.cli refresh-universe --top-n 300
 ```bash
 python -m app.cli pipeline-run --top-n 300 --ingest-limit 20 --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000
 ```
+
+12. Bootstrap from a seed CIK list (initial population):
+```bash
+python -m app.cli ingest-cik-list --file seeds/ciks.sample.txt --limit 20 --include-13dg
+python -m app.cli resolve-mappings
+python -m app.cli sync-tickers --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000 --universe-only
+python -m app.cli refresh-aggregates
+python -m app.cli refresh-universe --top-n 300
+```
+
+13. Full initial seeding (auto-discover larger 13F manager universe):
+```bash
+python -m app.cli discover-13f-ciks --quarters 6 --max-ciks 500 --out seeds/ciks.discovered.txt
+python -m app.cli ingest-cik-list --file seeds/ciks.discovered.txt --limit 40 --include-13dg
+python -m app.cli resolve-mappings
+python -m app.cli sync-tickers --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000 --universe-only
+python -m app.cli refresh-aggregates
+python -m app.cli refresh-universe --top-n 300
+```
+Or run:
+```bash
+make seed-full
+```
+
+14. Move existing SQLite data to local Docker Postgres (no re-ingest):
+```bash
+# create a consistent snapshot first
+sqlite3 data/app.db ".backup data/app.snapshot.db"
+
+# start Postgres
+make pg-up
+
+# migrate snapshot into Postgres
+make pg-migrate
+
+# point API to Postgres
+export API_DB_URL="postgresql+psycopg://flow:flow@127.0.0.1:5433/flowdb"
+```
+
+15. Resume only post-ingest stages in Postgres (no new SEC ingest):
+```bash
+make pg-resume-post
+```
+
+16. Efficient recurring update (incremental):
+```bash
+python -m app.cli update-incremental \
+  --top-n 300 \
+  --ingest-limit 20 \
+  --resolve-quarters 6 \
+  --recent-quarters 4 \
+  --min-holders 3 \
+  --min-total-value-usd 250000000 \
+  --skip-sync-tickers \
+  --log-file logs/incremental.jsonl
+```
+This updates active managers, resolves only recent report-date batches, and refreshes aggregates/universe.
+
+Postgres shortcut:
+```bash
+make pg-incremental
+```
+
+Optional coverage alert thresholds:
+- `--alert-min-13f-pct` (default `95.0`)
+- `--alert-min-bo-pct` (default `95.0`)
 
 ## Frontend (Next.js)
 
@@ -123,3 +190,6 @@ Notes:
 - Resolver now maps `UNMAPPED` rows using effective-dated identifiers (`CUSIP` first, then `TICKER`) and alias fallback with confidence.
 - Security page QoQ net change applies split factors from `corporate_actions` rows with `action_type='SPLIT'`.
 - API request logging is verbose by design and captured in `api_request_log` for usage telemetry.
+- Seed file support: `ingest-cik-list --file <path>` accepts `.txt` (one CIK per line) or `.csv` with a `cik` column.
+- Discovery support: `discover-13f-ciks` scans recent SEC `master.idx` files for `13F-HR` / `13F-HR/A` filers and writes a deduplicated CIK list.
+- Scaling/retention runbook: `docs/postgres_scaling.md`.

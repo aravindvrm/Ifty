@@ -50,7 +50,7 @@ export default async function SecurityPage({ params }: Props) {
         <h1 className="page-title">Security: {security.ticker}</h1>
         <p className="page-subtitle">MIC {security.mic || "N/A"} • Security ID {security.security_id}</p>
         <div className="input-row">
-          <input readOnly value="Open another ticker via URL (example: /security/MSFT)" />
+          <Link href="/security">Search another security</Link>
           <Link href="/screeners">Back to Screeners</Link>
         </div>
       </div>

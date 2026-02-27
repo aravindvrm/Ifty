@@ -62,8 +62,13 @@ def test_accumulation_screener(api_client):
 def test_job_endpoints(api_client):
     res = api_client.post("/jobs/resolve-mappings")
     assert res.status_code == 200
-    assert "holdings_mapped" in res.json()
-    assert "bo_events_mapped" in res.json()
+    body = res.json()
+    assert "holdings_mapped" in body
+    assert "bo_events_mapped" in body
+    assert "holdings_batches" in body
+    assert "bo_batches" in body
+    assert isinstance(body["holdings_batches"], list)
+    assert isinstance(body["bo_batches"], list)
 
     res = api_client.post("/jobs/refresh-aggregates")
     assert res.status_code == 200
@@ -95,6 +100,71 @@ def test_security_search(api_client):
     body = response.json()
     assert body["query"] == "Apple"
     assert len(body["rows"]) >= 1
+
+
+def test_ops_endpoints(api_client):
+    response = api_client.get("/ops/manager-universe?limit_n=10")
+    assert response.status_code == 200
+    assert "rows" in response.json()
+
+    response = api_client.get("/ops/api-usage?days=7&limit_n=10")
+    assert response.status_code == 200
+    body = response.json()
+    assert "summary" in body
+    assert "recent" in body
+
+
+def test_ops_pipeline_runs_latest_parses_metrics(test_engine):
+    from app.dependencies import get_db
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    with test_engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO pipeline_run_events (run_id, event_ts, stage, status, message, metrics_json)
+                VALUES
+                  (:run_id, :event_ts, :stage, :status, :message, :metrics_json)
+                """
+            ),
+            [
+                {
+                    "run_id": "run-test-1",
+                    "event_ts": "2026-01-01 00:00:00",
+                    "stage": "start",
+                    "status": "INFO",
+                    "message": "start",
+                    "metrics_json": '{"x":1}',
+                },
+                {
+                    "run_id": "run-test-1",
+                    "event_ts": "2026-01-01 00:00:01",
+                    "stage": "done",
+                    "status": "INFO",
+                    "message": "done",
+                    "metrics_json": '{"y":2}',
+                },
+            ],
+        )
+
+    def _override_get_db():
+        with Session(bind=test_engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    try:
+        with TestClient(app) as client:
+            res = client.get("/ops/pipeline-runs/latest")
+            assert res.status_code == 200
+            body = res.json()
+            assert body["run_id"] == "run-test-1"
+            assert body["current"]["stage"] == "done"
+            assert body["current"]["metrics"]["y"] == 2
+            assert len(body["events"]) == 2
+            assert body["events"][0]["metrics"]["x"] == 1
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_sync_tickers_job_endpoint(test_engine):

@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Sparkline } from "@/components/charts";
 import { getAccumulation, getAccumulationHistory, getNew5Pct } from "@/lib/api";
 import { fmtNumber } from "@/lib/format";
@@ -20,15 +22,31 @@ function shiftDate(days: number): string {
 export default async function ScreenersPage({ searchParams }: Props) {
   const query = await searchParams;
 
-  const history = await getAccumulationHistory(40);
+  let history;
+  try {
+    history = await getAccumulationHistory(40);
+  } catch (error) {
+    return (
+      <div className="card">
+        <h1 className="page-title">Screeners</h1>
+        <p className="page-subtitle">Failed to load screener history.</p>
+        <pre>{String(error)}</pre>
+      </div>
+    );
+  }
   const quarters = history.quarters;
   const currQ = query.curr_q ?? quarters[quarters.length - 1] ?? "";
   const prevQ = query.prev_q ?? quarters[quarters.length - 2] ?? "";
-
-  const [accumulation, new5Pct] = await Promise.all([
-    currQ && prevQ ? getAccumulation(currQ, prevQ, 100) : Promise.resolve({ curr_q: "", prev_q: "", rows: [] }),
-    getNew5Pct(query.start_date ?? shiftDate(-90), query.end_date ?? shiftDate(0), 100)
+  const defaultAccumulation = { curr_q: currQ, prev_q: prevQ, rows: [] as Array<{ security_id: number; security_name: string | null; ticker?: string | null; instrument_type: string | null; net_holder_count: number; net_shares: number }> };
+  const defaultNew5Pct = { start_date: query.start_date ?? shiftDate(-90), end_date: query.end_date ?? shiftDate(0), rows: [] as Array<{ report_date: string; manager_id: number | null; manager_name: string | null; security_id: number | null; security_name: string | null; percent_beneficial_owned: number | null; shares_beneficial_owned: number | null; accession_no: string; form_type: string }> };
+  const settled = await Promise.allSettled([
+    currQ && prevQ ? getAccumulation(currQ, prevQ, 100) : Promise.resolve(defaultAccumulation),
+    getNew5Pct(defaultNew5Pct.start_date, defaultNew5Pct.end_date, 100)
   ]);
+  const accumulation = settled[0].status === "fulfilled" ? settled[0].value : defaultAccumulation;
+  const new5Pct = settled[1].status === "fulfilled" ? settled[1].value : defaultNew5Pct;
+  const accumulationError = settled[0].status === "rejected" ? String(settled[0].reason) : "";
+  const new5PctError = settled[1].status === "rejected" ? String(settled[1].reason) : "";
 
   const sparkBySecurity = new Map(history.rows.map((r) => [r.security_id, r.series]));
 
@@ -41,6 +59,7 @@ export default async function ScreenersPage({ searchParams }: Props) {
 
       <div className="card">
         <h3>Accumulation Leaderboard</h3>
+        {accumulationError ? <p className="page-subtitle">Accumulation data unavailable: {accumulationError}</p> : null}
         <form className="input-row" method="get">
           <input name="prev_q" defaultValue={prevQ} placeholder="Prev quarter (YYYY-MM-DD)" />
           <input name="curr_q" defaultValue={currQ} placeholder="Curr quarter (YYYY-MM-DD)" />
@@ -59,7 +78,15 @@ export default async function ScreenersPage({ searchParams }: Props) {
             <tbody>
               {accumulation.rows.map((row) => (
                 <tr key={row.security_id}>
-                  <td>{row.security_name ?? `Security ${row.security_id}`}</td>
+                  <td>
+                    {row.ticker ? (
+                      <Link href={`/security/${encodeURIComponent(row.ticker)}`}>
+                        {row.ticker} - {row.security_name ?? `Security ${row.security_id}`}
+                      </Link>
+                    ) : (
+                      row.security_name ?? `Security ${row.security_id}`
+                    )}
+                  </td>
                   <td className={row.net_holder_count >= 0 ? "badge-pos" : "badge-neg"}>{fmtNumber(row.net_holder_count)}</td>
                   <td className={row.net_shares >= 0 ? "badge-pos" : "badge-neg"}>{fmtNumber(row.net_shares)}</td>
                   <td className="spark-cell">
@@ -74,6 +101,7 @@ export default async function ScreenersPage({ searchParams }: Props) {
 
       <div className="card">
         <h3>New 13D/G 5% Holders</h3>
+        {new5PctError ? <p className="page-subtitle">13D/G feed unavailable: {new5PctError}</p> : null}
         <form className="input-row" method="get">
           <input name="start_date" defaultValue={query.start_date ?? new5Pct.start_date} placeholder="Start (YYYY-MM-DD)" />
           <input name="end_date" defaultValue={query.end_date ?? new5Pct.end_date} placeholder="End (YYYY-MM-DD)" />
