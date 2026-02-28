@@ -11,6 +11,9 @@ __pycache__/
 # Local data
 data/*.db
 
+# macOS
+.DS_Store
+
 # Web frontend
 apps/web/node_modules/
 apps/web/.next/

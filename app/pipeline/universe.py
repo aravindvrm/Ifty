@@ -38,6 +38,7 @@ class ManagerUniverseService:
                   SELECT manager_id, SUM(COALESCE(value_usd_thousands, 0)) * 1000.0 AS total_value_usd
                   FROM holdings_13f
                   WHERE report_date = :latest
+                    AND option_type IS NULL
                     AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
                   GROUP BY manager_id
                 )

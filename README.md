@@ -34,6 +34,7 @@ python -m app.cli ingest-13f --cik 0001067983 --limit 20
 ```bash
 python -m app.cli ingest-13dg --cik 0001067983 --limit 20
 ```
+`--limit` applies to matching target forms (e.g., `13F-HR`, `13F-HR/A`, `SC 13D`, `SC 13G`), not just the first N mixed `filings.recent` rows.
 
 7. Resolve unmapped holdings/events into `security_id`:
 ```bash
@@ -71,7 +72,7 @@ python -m app.cli refresh-universe --top-n 300
 
 13. Full initial seeding (auto-discover larger 13F manager universe):
 ```bash
-python -m app.cli discover-13f-ciks --quarters 6 --max-ciks 500 --out seeds/ciks.discovered.txt
+python -m app.cli discover-13f-ciks --quarters 6 --max-ciks 0 --out seeds/ciks.discovered.txt
 python -m app.cli ingest-cik-list --file seeds/ciks.discovered.txt --limit 40 --include-13dg
 python -m app.cli resolve-mappings
 python -m app.cli sync-tickers --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000 --universe-only
@@ -82,6 +83,12 @@ Or run:
 ```bash
 make seed-full
 ```
+
+13b. Seed explicitly by top 13F AUM proxy from SEC dataset (ingest only missing managers, optional prune):
+```bash
+python -m app.cli seed-top-aum --top-n 100 --limit 40 --include-13dg
+```
+Use `--dataset-url` to pin a specific SEC 13F ZIP, and `--no-prune` to skip deleting managers below threshold.
 
 14. Move existing SQLite data to local Docker Postgres (no re-ingest):
 ```bash
@@ -125,6 +132,29 @@ make pg-incremental
 Optional coverage alert thresholds:
 - `--alert-min-13f-pct` (default `95.0`)
 - `--alert-min-bo-pct` (default `95.0`)
+
+17. Live analytics validation (internal consistency + optional third-party snapshot):
+```bash
+python -m app.cli validate-live \
+  --sample-managers 10 \
+  --sample-tickers 20 \
+  --tolerance-pct 0.25 \
+  --fail-on-error
+```
+Optional external comparison:
+```bash
+python -m app.cli validate-live --ticker AAPL --external-provider auto
+```
+External providers:
+- `nasdaq` (institutional-holdings endpoint)
+- `polygon` (shares outstanding + splits where available)
+- `alphavantage` (shares outstanding)
+- `auto` (tries Polygon first, then Alpha Vantage)
+
+Rate-limit knobs:
+- `NASDAQ_BURST_PER_SECOND` (default `0.5`)
+- `POLYGON_BURST_PER_SECOND` (default `0.2`)
+- `ALPHAVANTAGE_BURST_PER_SECOND` (default `0.08`)
 
 ## Frontend (Next.js)
 
@@ -181,6 +211,7 @@ Notes:
 - `GET /screeners/new-5pct-holders?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
 - `GET /ops/manager-universe?limit_n=...`
 - `GET /ops/api-usage?days=...&limit_n=...`
+- `python -m app.cli validate-live` (CLI audit command)
 
 ## Notes
 
@@ -191,5 +222,5 @@ Notes:
 - Security page QoQ net change applies split factors from `corporate_actions` rows with `action_type='SPLIT'`.
 - API request logging is verbose by design and captured in `api_request_log` for usage telemetry.
 - Seed file support: `ingest-cik-list --file <path>` accepts `.txt` (one CIK per line) or `.csv` with a `cik` column.
-- Discovery support: `discover-13f-ciks` scans recent SEC `master.idx` files for `13F-HR` / `13F-HR/A` filers and writes a deduplicated CIK list.
+- Discovery support: `discover-13f-ciks` scans recent SEC `master.idx` files for `13F-HR` / `13F-HR/A` filers and writes a deduplicated CIK list. Use `--max-ciks 0` for full coverage; capped runs are tie-aware and include all CIKs at the cutoff score.
 - Scaling/retention runbook: `docs/postgres_scaling.md`.

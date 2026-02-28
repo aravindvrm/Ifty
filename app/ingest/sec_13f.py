@@ -314,11 +314,13 @@ class Sec13FIngestionService:
         report_dates = recent.get("reportDate", [])
         primary_docs = recent.get("primaryDocument", [])
 
-        max_rows = min(limit, len(forms))
-        for i in range(max_rows):
+        # `filings.recent` is mixed-form and can be very large; select by matching forms first.
+        matching_indexes = [i for i, form in enumerate(forms) if form in SUPPORTED_FORMS]
+        if limit is not None:
+            matching_indexes = matching_indexes[: max(0, int(limit))]
+
+        for i in matching_indexes:
             form_type = forms[i]
-            if form_type not in SUPPORTED_FORMS:
-                continue
             accession_no = accession_numbers[i]
             filed_at = filing_dates[i]
             report_date = report_dates[i] if i < len(report_dates) else None

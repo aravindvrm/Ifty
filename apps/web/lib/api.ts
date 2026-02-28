@@ -1,7 +1,23 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+const FETCH_TIMEOUT_MS = 15000;
 
 async function requestJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, { cache: "no-store", signal: controller.signal });
+  } catch (error) {
+    const localhostBase = API_BASE.includes("localhost") ? API_BASE : "";
+    if (!localhostBase) {
+      clearTimeout(timeout);
+      throw error;
+    }
+    const fallbackBase = localhostBase.replace("localhost", "127.0.0.1");
+    response = await fetch(`${fallbackBase}${path}`, { cache: "no-store", signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`${response.status} ${response.statusText}: ${body}`);
@@ -12,15 +28,40 @@ async function requestJson<T>(path: string): Promise<T> {
 export type SecurityPageResponse = {
   security_id: number;
   ticker: string;
+  security_name?: string;
   mic: string;
   latest_quarter: string | null;
   top_holders: Array<{ manager_id: number; manager_name: string; shares: number; value_usd_thousands: number }>;
+  active_positions: Array<{
+    manager_id: number;
+    manager_name: string;
+    shares: number;
+    value_usd_thousands: number;
+    qoq_delta_shares: number;
+    pct_manager_portfolio: number | null;
+    is_new: boolean;
+  }>;
   net_change_last_4q: Array<{
     manager_id: number;
     manager_name: string;
     report_date: string;
     net_change_shares: number;
   }>;
+  ownership_summary: {
+    holders_count?: number;
+    total_shares?: number;
+    total_value_usd?: number;
+    qoq_net_change_shares?: number;
+    top10_concentration_pct?: number;
+  };
+  activity_breakdown: {
+    total?: number;
+    new?: number;
+    increased?: number;
+    decreased?: number;
+    sold_out?: number;
+    activity?: number;
+  };
   concentration: {
     total_shares?: number;
     top10_shares?: number;
@@ -51,6 +92,7 @@ export type ManagerPageResponse = {
     security_id: number;
     issuer_name_raw: string | null;
     class_title_raw: string | null;
+    ticker?: string | null;
     shares: number;
     value_usd_thousands: number;
   }>;
@@ -185,6 +227,21 @@ export function getSecurity(ticker: string) {
 
 export function getSecurityEvents(ticker: string) {
   return requestJson<SecurityEventResponse>(`/security/${encodeURIComponent(ticker.toUpperCase())}/events`);
+}
+
+export function getSecurityEventsFiltered(
+  ticker: string,
+  options?: { new5pctOnly?: boolean; startDate?: string; endDate?: string; limitN?: number }
+) {
+  const params = new URLSearchParams();
+  if (options?.new5pctOnly) params.set("new_5pct_only", "1");
+  if (options?.startDate) params.set("start_date", options.startDate);
+  if (options?.endDate) params.set("end_date", options.endDate);
+  params.set("limit_n", String(options?.limitN ?? 100));
+  const qs = params.toString();
+  return requestJson<SecurityEventResponse>(
+    `/security/${encodeURIComponent(ticker.toUpperCase())}/events${qs ? `?${qs}` : ""}`
+  );
 }
 
 export function getManager(managerKey: string) {

@@ -49,7 +49,13 @@ export default async function SecuritySearchPage({ searchParams }: Props) {
                 results.rows.map((row) => (
                   <tr key={row.security_id}>
                     <td>
-                      {row.ticker ? <Link href={`/security/${encodeURIComponent(row.ticker)}`}>{row.ticker}</Link> : "-"}
+                      {row.ticker ? (
+                        <Link prefetch={false} href={`/security/${encodeURIComponent(row.ticker)}`}>
+                          {row.ticker}
+                        </Link>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                     <td>{row.security_name ?? "-"}</td>
                     <td>{row.issuer_name ?? "-"}</td>

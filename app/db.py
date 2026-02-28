@@ -1,10 +1,13 @@
 from pathlib import Path
+from functools import lru_cache
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
+
+POSTGRES_BOOTSTRAP_VERSION = "2026-02-28.1"
 
 
 def _ensure_sqlite_parent_exists(db_url: str) -> None:
@@ -16,10 +19,22 @@ def _ensure_sqlite_parent_exists(db_url: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
 
 
+@lru_cache(maxsize=1)
 def get_engine() -> Engine:
     settings = get_settings()
     _ensure_sqlite_parent_exists(settings.api_db_url)
-    return create_engine(settings.api_db_url, future=True)
+    if settings.api_db_url.startswith("sqlite:///"):
+        return create_engine(settings.api_db_url, future=True)
+    return create_engine(
+        settings.api_db_url,
+        future=True,
+        pool_pre_ping=True,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=settings.db_pool_timeout_seconds,
+        pool_recycle=settings.db_pool_recycle_seconds,
+        connect_args={"options": f"-c statement_timeout={settings.db_statement_timeout_ms}"},
+    )
 
 
 SessionLocal = sessionmaker(bind=get_engine(), autoflush=False, autocommit=False, class_=Session)
@@ -38,6 +53,8 @@ def ensure_schema_and_seed(engine: Engine) -> None:
         # Postgres path: schema is expected to be provisioned via migration tooling.
         # Seed defaults only if the target table exists.
         with engine.begin() as conn:
+            # Bootstrap/repair can run long on large datasets; do not inherit request timeout.
+            conn.execute(text("SET LOCAL statement_timeout = 0"))
             table_exists = conn.execute(
                 text(
                     """
@@ -50,6 +67,29 @@ def ensure_schema_and_seed(engine: Engine) -> None:
                 )
             ).first()
             if not table_exists:
+                return
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS app_bootstrap_meta (
+                      key TEXT PRIMARY KEY,
+                      value TEXT NOT NULL,
+                      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            applied_version = conn.execute(
+                text(
+                    """
+                    SELECT value
+                    FROM app_bootstrap_meta
+                    WHERE key = 'postgres_bootstrap_version'
+                    LIMIT 1
+                    """
+                )
+            ).scalar()
+            if applied_version == POSTGRES_BOOTSTRAP_VERSION:
                 return
             conn.execute(
                 text(
@@ -134,13 +174,68 @@ def ensure_schema_and_seed(engine: Engine) -> None:
             conn.execute(
                 text(
                     """
+                    CREATE INDEX IF NOT EXISTS ix_13f_manager_report_date
+                    ON holdings_13f (manager_id, report_date)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_13f_cusip_norm_mapped_nonopt
+                    ON holdings_13f (UPPER(REPLACE(REPLACE(TRIM(cusip_raw), '-', ''), ' ', '')))
+                    WHERE cusip_raw IS NOT NULL
+                      AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+                      AND option_type IS NULL
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
                     CREATE INDEX IF NOT EXISTS ix_13f_security_report_date
                     ON holdings_13f (security_id, report_date)
                     """
                 )
             )
             conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_13f_security_report_date_mapped_nonopt
+                    ON holdings_13f (security_id, report_date)
+                    WHERE mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+                      AND option_type IS NULL
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_13f_filing_id
+                    ON holdings_13f (filing_id)
+                    """
+                )
+            )
+            conn.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_ident_idtype_idvalue ON security_identifiers (id_type, id_value)")
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_ident_cusip_norm
+                    ON security_identifiers (UPPER(REPLACE(REPLACE(TRIM(id_value), '-', ''), ' ', '')))
+                    WHERE id_type = 'CUSIP'
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_ident_ticker_upper
+                    ON security_identifiers (UPPER(id_value))
+                    WHERE id_type = 'TICKER'
+                    """
+                )
             )
             conn.execute(
                 text(
@@ -188,6 +283,18 @@ def ensure_schema_and_seed(engine: Engine) -> None:
                         """
                     )
                 )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO app_bootstrap_meta (key, value, updated_at)
+                    VALUES ('postgres_bootstrap_version', :version, CURRENT_TIMESTAMP)
+                    ON CONFLICT (key) DO UPDATE
+                    SET value = excluded.value,
+                        updated_at = CURRENT_TIMESTAMP
+                    """
+                ),
+                {"version": POSTGRES_BOOTSTRAP_VERSION},
+            )
         return
 
     root = Path(__file__).resolve().parent.parent

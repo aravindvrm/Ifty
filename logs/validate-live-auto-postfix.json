@@ -1,0 +1,65 @@
+{
+  "checked": {
+    "external_provider": "auto",
+    "managers": [
+      "575",
+      "504",
+      "505",
+      "506",
+      "579",
+      "507",
+      "571",
+      "573"
+    ],
+    "tickers": [
+      "NVDA",
+      "AAPL",
+      "MSFT",
+      "AMZN",
+      "GOOGL",
+      "AVGO",
+      "META",
+      "GOOG"
+    ]
+  },
+  "error_count": 0,
+  "issues": [
+    {
+      "actual": 115,
+      "expected": ">=1000",
+      "key": "2025-12-31",
+      "metric": "distinct_managers_latest_quarter",
+      "note": "Universe appears truncated; security/manager comparisons vs public sources may differ materially.",
+      "scope": "dataset_coverage",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "504",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "505",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "506",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    }
+  ],
+  "warn_count": 4
+}

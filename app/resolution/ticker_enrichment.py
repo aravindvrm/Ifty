@@ -186,6 +186,22 @@ class TickerEnrichmentService:
             if exists:
                 continue
 
+            # `id_type,id_value` is globally unique, so skip if ticker is already claimed.
+            ticker_claimed = self.db.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM security_identifiers
+                    WHERE id_type = 'TICKER'
+                      AND UPPER(id_value) = :ticker
+                    LIMIT 1
+                    """
+                ),
+                {"ticker": ticker},
+            ).mappings().first()
+            if ticker_claimed:
+                continue
+
             self.db.execute(
                 text(
                     """

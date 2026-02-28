@@ -95,6 +95,10 @@ a {
   margin-bottom: 16px;
 }
 
+.metric-row-6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
 .metric {
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -144,11 +148,67 @@ a {
   color: #ef4444;
 }
 
+.heatmap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.heatmap-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.heatmap-swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(226, 232, 240, 0.3);
+}
+
+.heatmap-swatch-pos {
+  background: rgba(34, 197, 94, 0.75);
+}
+
+.heatmap-swatch-neg {
+  background: rgba(239, 68, 68, 0.75);
+}
+
+.heatmap-swatch-neutral {
+  background: rgba(14, 165, 233, 0.7);
+}
+
+.treemap-wrap {
+  width: 100%;
+  min-height: 320px;
+  overflow-x: auto;
+}
+
+.heatmap-tooltip {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(8, 17, 29, 0.95);
+  color: var(--text);
+  font-size: 0.78rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.heatmap-tooltip-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
 .input-row {
   display: flex;
   gap: 8px;
   margin-bottom: 16px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 input,
@@ -189,5 +249,19 @@ button {
 
   .metric-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric-row-6 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .treemap-wrap {
+    min-height: 260px;
+  }
+}
+
+@media (max-width: 640px) {
+  .treemap-wrap {
+    min-height: 220px;
   }
 }

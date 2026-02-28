@@ -9,10 +9,10 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@nivo/treemap": "^0.99.0",
     "next": "15.1.6",
     "react": "19.0.0",
-    "react-dom": "19.0.0",
-    "recharts": "2.15.1"
+    "react-dom": "19.0.0"
   },
   "devDependencies": {
     "@types/node": "22.10.2",

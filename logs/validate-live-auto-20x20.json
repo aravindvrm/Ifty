@@ -1,0 +1,62 @@
+{
+  "checked": {
+    "external_provider": "auto",
+    "managers": [
+      "186",
+      "48",
+      "56",
+      "27",
+      "14",
+      "10",
+      "24",
+      "132",
+      "76",
+      "1",
+      "73",
+      "126",
+      "82",
+      "60",
+      "34",
+      "220",
+      "123",
+      "65",
+      "105",
+      "20"
+    ],
+    "tickers": [
+      "NVDA",
+      "AAPL",
+      "MSFT",
+      "AMZN",
+      "GOOGL",
+      "AVGO",
+      "META",
+      "GOOG",
+      "IVV",
+      "LLY",
+      "TSLA",
+      "JPM",
+      "VOO",
+      "AXP",
+      "BAM",
+      "V",
+      "KO",
+      "BRK/B",
+      "MA",
+      "JNJ"
+    ]
+  },
+  "error_count": 0,
+  "issues": [
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "BRK/B",
+      "metric": "auto_fetch",
+      "note": "polygon: 404 Client Error: Not Found for url: https://api.polygon.io/v3/reference/tickers/BRK/B?apiKey=VVA0w_vKDH5aVoU0Tnwt9oPfTEXshNSJ; alphavantage: Alpha Vantage response missing SharesOutstanding",
+      "scope": "security_external",
+      "severity": "warn"
+    }
+  ],
+  "warn_count": 1
+}

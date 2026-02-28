@@ -25,3 +25,13 @@ export function fmtUsdThousands(v: number | null | undefined): string {
   if (Math.abs(usd) >= 1_000) return `$${(usd / 1_000).toFixed(1)}K`;
   return `$${usd.toFixed(0)}`;
 }
+
+export function fmtUsd(v: number | null | undefined): string {
+  if (v === null || v === undefined || Number.isNaN(v)) {
+    return "-";
+  }
+  if (Math.abs(v) >= 1_000_000_000) return `$${(v / 1_000_000_000).toFixed(2)}B`;
+  if (Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
+  if (Math.abs(v) >= 1_000) return `$${(v / 1_000).toFixed(1)}K`;
+  return `$${v.toFixed(0)}`;
+}

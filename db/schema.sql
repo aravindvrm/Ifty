@@ -60,6 +60,12 @@ CREATE INDEX IF NOT EXISTS ix_identifiers_security
 ON security_identifiers (security_id, id_type);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_identifiers_type_value
 ON security_identifiers (id_type, id_value);
+CREATE INDEX IF NOT EXISTS ix_ident_cusip_norm
+ON security_identifiers (UPPER(REPLACE(REPLACE(TRIM(id_value), '-', ''), ' ', '')))
+WHERE id_type = 'CUSIP';
+CREATE INDEX IF NOT EXISTS ix_ident_ticker_upper
+ON security_identifiers (UPPER(id_value))
+WHERE id_type = 'TICKER';
 
 -- This prevents exact duplicate version rows.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_identifiers_version
@@ -188,8 +194,19 @@ ON holdings_13f (manager_id, security_id, report_date);
 
 CREATE INDEX IF NOT EXISTS ix_13f_security_qtr
 ON holdings_13f (security_id, report_date);
+CREATE INDEX IF NOT EXISTS ix_13f_security_qtr_mapped_nonopt
+ON holdings_13f (security_id, report_date)
+WHERE mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+  AND option_type IS NULL;
 CREATE INDEX IF NOT EXISTS ix_13f_report_date
 ON holdings_13f (report_date);
+CREATE INDEX IF NOT EXISTS ix_13f_manager_report_date
+ON holdings_13f (manager_id, report_date);
+CREATE INDEX IF NOT EXISTS ix_13f_cusip_norm_mapped_nonopt
+ON holdings_13f (UPPER(REPLACE(REPLACE(TRIM(cusip_raw), '-', ''), ' ', '')))
+WHERE cusip_raw IS NOT NULL
+  AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+  AND option_type IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_13f_row_dedup
 ON holdings_13f (filing_id, row_hash);

@@ -1,0 +1,14 @@
+{
+  "checked": {
+    "external_provider": "auto",
+    "managers": [
+      "186"
+    ],
+    "tickers": [
+      "BRK/B"
+    ]
+  },
+  "error_count": 0,
+  "issues": [],
+  "warn_count": 0
+}

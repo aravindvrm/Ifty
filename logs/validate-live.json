@@ -1,0 +1,68 @@
+{
+  "checked": {
+    "external_provider": "nasdaq",
+    "managers": [
+      "186",
+      "48",
+      "56",
+      "27",
+      "14"
+    ],
+    "tickers": [
+      "NVDA",
+      "AAPL",
+      "MSFT",
+      "AMZN",
+      "GOOGL"
+    ]
+  },
+  "error_count": 0,
+  "issues": [
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "NVDA",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "AAPL",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "MSFT",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "AMZN",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "GOOGL",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    }
+  ],
+  "warn_count": 5
+}

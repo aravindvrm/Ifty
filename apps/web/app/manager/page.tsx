@@ -65,7 +65,9 @@ export default async function ManagerDirectoryPage({ searchParams }: Props) {
                   <tr key={row.manager_id}>
                     <td>{row.rank}</td>
                     <td>
-                      <Link href={`/manager/${encodeURIComponent(String(row.manager_id))}`}>{row.manager_name}</Link>
+                      <Link prefetch={false} href={`/manager/${encodeURIComponent(String(row.manager_id))}`}>
+                        {row.manager_name}
+                      </Link>
                     </td>
                     <td>{row.cik ?? "-"}</td>
                     <td>{fmtNumber(row.total_value_usd ?? 0, 0)}</td>

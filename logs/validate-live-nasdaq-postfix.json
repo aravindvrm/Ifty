@@ -1,0 +1,468 @@
+{
+  "checked": {
+    "external_provider": "nasdaq",
+    "managers": [
+      "575",
+      "504",
+      "505",
+      "506",
+      "579",
+      "507",
+      "571",
+      "573",
+      "186",
+      "509",
+      "510",
+      "578",
+      "514",
+      "48",
+      "515",
+      "56",
+      "582",
+      "516",
+      "517",
+      "574"
+    ],
+    "tickers": [
+      "NVDA",
+      "AAPL",
+      "MSFT",
+      "AMZN",
+      "GOOGL",
+      "AVGO",
+      "META",
+      "GOOG",
+      "LLY",
+      "TSLA",
+      "JPM",
+      "V",
+      "BRK/B",
+      "IVV",
+      "MA",
+      "JNJ",
+      "XOM",
+      "WMT",
+      "NFLX",
+      "ABBV",
+      "SPY",
+      "MU",
+      "COST",
+      "HD",
+      "GE",
+      "CSCO",
+      "ORCL",
+      "UNH",
+      "PLTR",
+      "WFC"
+    ]
+  },
+  "error_count": 0,
+  "issues": [
+    {
+      "actual": 115,
+      "expected": ">=1000",
+      "key": "2025-12-31",
+      "metric": "distinct_managers_latest_quarter",
+      "note": "Universe appears truncated; security/manager comparisons vs public sources may differ materially.",
+      "scope": "dataset_coverage",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "504",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "505",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "506",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "prior filing exists but mapped holdings are missing",
+      "expected": "mapped prior quarter available",
+      "key": "186",
+      "metric": "prev_quarter_coverage",
+      "note": "QoQ metrics may be unstable for this manager until prior-quarter mapping coverage is restored.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "186",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "509",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "510",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "514",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "515",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "56",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "prior filing exists but mapped holdings are missing",
+      "expected": "mapped prior quarter available",
+      "key": "582",
+      "metric": "prev_quarter_coverage",
+      "note": "QoQ metrics may be unstable for this manager until prior-quarter mapping coverage is restored.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "582",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "516",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "517",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "NVDA",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "AAPL",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "MSFT",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "AMZN",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "GOOGL",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "AVGO",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "META",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "GOOG",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "LLY",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "TSLA",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "JPM",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "V",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "BRK/B",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "IVV",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "MA",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "JNJ",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "XOM",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "WMT",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "NFLX",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "ABBV",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "SPY",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "MU",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "COST",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "HD",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "GE",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "CSCO",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "ORCL",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "UNH",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "PLTR",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "WFC",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=20.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    }
+  ],
+  "warn_count": 45
+}

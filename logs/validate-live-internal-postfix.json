@@ -1,0 +1,116 @@
+{
+  "checked": {
+    "external_provider": "none",
+    "managers": [
+      "186",
+      "48",
+      "56",
+      "27",
+      "14",
+      "10",
+      "24",
+      "132",
+      "76",
+      "1",
+      "73",
+      "126",
+      "82",
+      "60",
+      "34",
+      "220",
+      "123",
+      "65",
+      "105",
+      "20"
+    ],
+    "tickers": [
+      "NVDA",
+      "AAPL",
+      "MSFT",
+      "AMZN",
+      "GOOGL",
+      "AVGO",
+      "META",
+      "GOOG",
+      "IVV",
+      "LLY",
+      "TSLA",
+      "JPM",
+      "VOO",
+      "AXP",
+      "BAM",
+      "V",
+      "KO",
+      "BRK/B",
+      "MA",
+      "JNJ"
+    ]
+  },
+  "error_count": 0,
+  "issues": [
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "56",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "14",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "10",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "24",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": 2,
+      "expected": 1,
+      "key": "132",
+      "metric": "latest_quarter_filing_count",
+      "note": "Multiple filings for latest quarter; APIs must use canonical filing selection to avoid double-counting.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": 2,
+      "expected": 1,
+      "key": "73",
+      "metric": "latest_quarter_filing_count",
+      "note": "Multiple filings for latest quarter; APIs must use canonical filing selection to avoid double-counting.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "126",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    }
+  ],
+  "warn_count": 7
+}

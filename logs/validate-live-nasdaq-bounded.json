@@ -1,0 +1,53 @@
+{
+  "checked": {
+    "external_provider": "nasdaq",
+    "managers": [
+      "575",
+      "504"
+    ],
+    "tickers": [
+      "NVDA",
+      "AAPL"
+    ]
+  },
+  "error_count": 0,
+  "issues": [
+    {
+      "actual": 115,
+      "expected": ">=1000",
+      "key": "2025-12-31",
+      "metric": "distinct_managers_latest_quarter",
+      "note": "Universe appears truncated; security/manager comparisons vs public sources may differ materially.",
+      "scope": "dataset_coverage",
+      "severity": "warn"
+    },
+    {
+      "actual": "0.0000%",
+      "expected": ">=1% previous-quarter value coverage",
+      "key": "504",
+      "metric": "qoq_coverage_ratio",
+      "note": "Extremely low previous-quarter coverage often indicates mapping or filing-selection issues.",
+      "scope": "manager_data_quality",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "NVDA",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=10.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    },
+    {
+      "actual": "failed",
+      "expected": "successful fetch",
+      "key": "AAPL",
+      "metric": "nasdaq_fetch",
+      "note": "HTTPSConnectionPool(host='api.nasdaq.com', port=443): Read timed out. (read timeout=10.0)",
+      "scope": "security_external",
+      "severity": "warn"
+    }
+  ],
+  "warn_count": 4
+}

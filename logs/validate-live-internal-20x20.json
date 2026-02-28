@@ -1,0 +1,52 @@
+{
+  "checked": {
+    "external_provider": "none",
+    "managers": [
+      "186",
+      "48",
+      "56",
+      "27",
+      "14",
+      "10",
+      "24",
+      "132",
+      "76",
+      "1",
+      "73",
+      "126",
+      "82",
+      "60",
+      "34",
+      "220",
+      "123",
+      "65",
+      "105",
+      "20"
+    ],
+    "tickers": [
+      "NVDA",
+      "AAPL",
+      "MSFT",
+      "AMZN",
+      "GOOGL",
+      "AVGO",
+      "META",
+      "GOOG",
+      "IVV",
+      "LLY",
+      "TSLA",
+      "JPM",
+      "VOO",
+      "AXP",
+      "BAM",
+      "V",
+      "KO",
+      "BRK/B",
+      "MA",
+      "JNJ"
+    ]
+  },
+  "error_count": 0,
+  "issues": [],
+  "warn_count": 0
+}

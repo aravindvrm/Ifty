@@ -57,16 +57,19 @@ seed-ingest:
 	. .venv/bin/activate && python -m app.cli ingest-cik-list --file seeds/ciks.sample.txt --limit 20
 
 discover-ciks:
-	. .venv/bin/activate && python -m app.cli discover-13f-ciks --quarters 6 --max-ciks 500 --out seeds/ciks.discovered.txt
+	. .venv/bin/activate && python -m app.cli discover-13f-ciks --quarters 6 --max-ciks 0 --out seeds/ciks.discovered.txt
 
 seed-full:
 	. .venv/bin/activate && export SEC_USER_AGENT='Aravind V aravindvrm@gmail.com' && \
-	python -m app.cli discover-13f-ciks --quarters 6 --max-ciks 500 --out seeds/ciks.discovered.txt && \
+	python -m app.cli discover-13f-ciks --quarters 6 --max-ciks 0 --out seeds/ciks.discovered.txt && \
 	python -m app.cli ingest-cik-list --file seeds/ciks.discovered.txt --limit 40 --include-13dg && \
 	python -m app.cli resolve-mappings && \
 	python -m app.cli sync-tickers --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000 --universe-only && \
 	python -m app.cli refresh-aggregates && \
 	python -m app.cli refresh-universe --top-n 300
+
+seed-top-aum:
+	. .venv/bin/activate && python -m app.cli seed-top-aum --top-n 100 --limit 40 --include-13dg
 
 pg-up:
 	docker compose -f docker-compose.postgres.yml up -d postgres

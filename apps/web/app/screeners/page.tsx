@@ -80,7 +80,7 @@ export default async function ScreenersPage({ searchParams }: Props) {
                 <tr key={row.security_id}>
                   <td>
                     {row.ticker ? (
-                      <Link href={`/security/${encodeURIComponent(row.ticker)}`}>
+                      <Link prefetch={false} href={`/security/${encodeURIComponent(row.ticker)}`}>
                         {row.ticker} - {row.security_name ?? `Security ${row.security_id}`}
                       </Link>
                     ) : (

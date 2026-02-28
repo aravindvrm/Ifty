@@ -1,8 +1,8 @@
 import Link from "next/link";
 
-import { PositionTreemap } from "@/components/charts";
+import { HoldingsHeatmap } from "@/components/charts";
 import { getManager } from "@/lib/api";
-import { fmtNumber, fmtPct, fmtUsdThousands } from "@/lib/format";
+import { fmtNumber, fmtPct, fmtUsd, fmtUsdThousands } from "@/lib/format";
 
 type Props = { params: Promise<{ managerKey: string }> };
 
@@ -22,9 +22,21 @@ export default async function ManagerPage({ params }: Props) {
     );
   }
 
-  const treemapData = manager.top_positions.map((p) => ({
-    name: `${p.issuer_name_raw ?? "Unknown"}`,
-    size: Number(p.value_usd_thousands ?? 0)
+  const deltaBySecurityId = new Map<number, number>();
+  for (const row of manager.top_buys) {
+    const prev = deltaBySecurityId.get(row.security_id) ?? 0;
+    deltaBySecurityId.set(row.security_id, prev + Math.abs(Number(row.delta_val ?? 0)));
+  }
+  for (const row of manager.top_sells) {
+    const prev = deltaBySecurityId.get(row.security_id) ?? 0;
+    deltaBySecurityId.set(row.security_id, prev - Math.abs(Number(row.delta_val ?? 0)));
+  }
+  const heatmapData = manager.top_positions.map((position) => ({
+    id: position.security_id,
+    name: `${position.issuer_name_raw ?? "Unknown"}`,
+    symbol: position.ticker ?? null,
+    size: Number(position.value_usd_thousands ?? 0),
+    delta: deltaBySecurityId.has(position.security_id) ? deltaBySecurityId.get(position.security_id) : null
   }));
 
   return (
@@ -40,11 +52,11 @@ export default async function ManagerPage({ params }: Props) {
       <div className="metric-row">
         <div className="metric">
           <div className="label">Turnover</div>
-          <div className="value">{fmtPct(manager.metrics.turnover_ratio ?? 0)}</div>
+          <div className="value">{fmtPct(manager.metrics.turnover_ratio)}</div>
         </div>
         <div className="metric">
           <div className="label">Top 10 Concentration</div>
-          <div className="value">{fmtPct(manager.metrics.top10_concentration_pct ?? 0)}</div>
+          <div className="value">{fmtPct(manager.metrics.top10_concentration_pct)}</div>
         </div>
         <div className="metric">
           <div className="label">New / Exited Positions</div>
@@ -54,11 +66,22 @@ export default async function ManagerPage({ params }: Props) {
         </div>
         <div className="metric">
           <div className="label">Portfolio Value</div>
-          <div className="value">{fmtUsdThousands((manager.metrics.total_value_current ?? 0) / 1000)}</div>
+          <div className="value">{fmtUsd(manager.metrics.total_value_current)}</div>
         </div>
       </div>
 
-      <PositionTreemap data={treemapData} />
+      <HoldingsHeatmap
+        title="Current Position Heatmap"
+        data={heatmapData}
+        valueLabel="Value (13F)"
+        deltaLabel="QoQ Δ Value"
+        valueFormat="usd_thousands"
+        deltaFormat="usd_thousands"
+        signedDelta
+        maxTiles={42}
+        minRelativeSize={0.01}
+        minTiles={16}
+      />
 
       <div className="grid-2">
         <div className="card">
@@ -80,7 +103,7 @@ export default async function ManagerPage({ params }: Props) {
                   manager.top_buys.map((row, idx) => (
                     <tr key={`${row.security_id}-${idx}`}>
                       <td>{row.issuer_name_raw ?? "Unknown"}</td>
-                      <td className="badge-pos">{fmtNumber(row.delta_val, 2)}</td>
+                      <td className="badge-pos">{fmtUsdThousands(row.delta_val)}</td>
                     </tr>
                   ))
                 )}
@@ -108,7 +131,7 @@ export default async function ManagerPage({ params }: Props) {
                   manager.top_sells.map((row, idx) => (
                     <tr key={`${row.security_id}-${idx}`}>
                       <td>{row.issuer_name_raw ?? "Unknown"}</td>
-                      <td className="badge-neg">{fmtNumber(row.delta_val, 2)}</td>
+                      <td className="badge-neg">{fmtUsdThousands(row.delta_val)}</td>
                     </tr>
                   ))
                 )}

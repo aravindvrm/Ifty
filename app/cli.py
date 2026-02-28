@@ -8,13 +8,14 @@ from datetime import date
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from app.config import get_settings
 from app.db import ensure_schema_and_seed, get_engine
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    settings = get_settings()
     parser = argparse.ArgumentParser(description="Institutional flow tracker CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -22,11 +23,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ingest = sub.add_parser("ingest-13f", help="Ingest recent 13F filings for a manager CIK.")
     ingest.add_argument("--cik", required=True, help="CIK, with or without leading zeros.")
-    ingest.add_argument("--limit", type=int, default=20, help="Max recent filing rows to scan.")
+    ingest.add_argument("--limit", type=int, default=20, help="Max matching 13F forms to ingest.")
 
     ingest_13dg = sub.add_parser("ingest-13dg", help="Ingest recent 13D/G filings for a manager CIK.")
     ingest_13dg.add_argument("--cik", required=True, help="CIK, with or without leading zeros.")
-    ingest_13dg.add_argument("--limit", type=int, default=20, help="Max recent filing rows to scan.")
+    ingest_13dg.add_argument("--limit", type=int, default=20, help="Max matching 13D/G forms to ingest.")
 
     sync_tickers = sub.add_parser("sync-tickers", help="Enrich security master with ticker identifiers.")
     sync_tickers.add_argument("--limit", type=int, default=None, help="Optional max securities to scan.")
@@ -42,7 +43,7 @@ def _build_parser() -> argparse.ArgumentParser:
     refresh_universe.add_argument("--top-n", type=int, default=300)
 
     ingest_universe = sub.add_parser("ingest-universe", help="Ingest filings for active manager universe.")
-    ingest_universe.add_argument("--limit", type=int, default=20, help="Per-manager recent filing rows to scan.")
+    ingest_universe.add_argument("--limit", type=int, default=20, help="Per-manager max matching forms to ingest.")
     ingest_universe.add_argument("--include-13dg", action="store_true", default=False)
 
     pipeline = sub.add_parser("pipeline-run", help="Run full scoped pipeline.")
@@ -55,7 +56,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     incr = sub.add_parser("update-incremental", help="Run efficient incremental update for active manager universe.")
     incr.add_argument("--top-n", type=int, default=300)
-    incr.add_argument("--ingest-limit", type=int, default=20, help="Per-manager filing rows to scan.")
+    incr.add_argument("--ingest-limit", type=int, default=20, help="Per-manager max matching forms to ingest.")
     incr.add_argument("--include-13dg", action="store_true", default=False)
     incr.add_argument("--resolve-quarters", type=int, default=6, help="Recent report_date batches to resolve.")
     incr.add_argument("--recent-quarters", type=int, default=4)
@@ -68,16 +69,50 @@ def _build_parser() -> argparse.ArgumentParser:
 
     seed = sub.add_parser("ingest-cik-list", help="Bootstrap by ingesting a CIK list file.")
     seed.add_argument("--file", required=True, help="Path to CIK list file (.txt or .csv).")
-    seed.add_argument("--limit", type=int, default=20, help="Per-manager recent filing rows to scan.")
+    seed.add_argument("--limit", type=int, default=20, help="Per-manager max matching forms to ingest.")
     seed.add_argument("--include-13dg", action="store_true", default=False)
 
     discover = sub.add_parser("discover-13f-ciks", help="Discover 13F filer CIKs from SEC master index.")
     discover.add_argument("--quarters", type=int, default=4, help="How many recent quarters to scan.")
-    discover.add_argument("--max-ciks", type=int, default=1000, help="Maximum CIKs to write.")
+    discover.add_argument(
+        "--max-ciks",
+        type=int,
+        default=1000,
+        help="Maximum CIKs to write. Use 0 for all discovered CIKs. Tie-aware selection includes all CIKs at cutoff score.",
+    )
     discover.add_argument(
         "--out",
         default="seeds/ciks.discovered.txt",
         help="Output file path for discovered CIKs.",
+    )
+
+    seed_top_aum = sub.add_parser(
+        "seed-top-aum",
+        help="Seed missing managers from SEC top-N by 13F table value (AUM proxy).",
+    )
+    seed_top_aum.add_argument(
+        "--top-n",
+        type=int,
+        default=int(settings.aum_top_n_default),
+        help="Target top-N managers by SEC 13F table value.",
+    )
+    seed_top_aum.add_argument("--limit", type=int, default=40, help="Per-manager max matching forms to ingest for missing CIKs.")
+    seed_top_aum.add_argument("--include-13dg", action="store_true", default=False)
+    seed_top_aum.add_argument(
+        "--dataset-url",
+        default="",
+        help="Optional SEC 13F ZIP URL override. Defaults to latest available dataset.",
+    )
+    seed_top_aum.add_argument(
+        "--out",
+        default="seeds/ciks.top_aum.txt",
+        help="Output file path for selected top-N CIK list.",
+    )
+    seed_top_aum.add_argument(
+        "--no-prune",
+        action="store_true",
+        default=False,
+        help="Skip pruning existing manager data below the top-N AUM threshold.",
     )
 
     resume = sub.add_parser("resume-post-ingest", help="Resume post-ingest steps in bounded batches.")
@@ -100,6 +135,44 @@ def _build_parser() -> argparse.ArgumentParser:
     enrich.add_argument("--provider", choices=["openfigi", "noop"], default="noop")
     enrich.add_argument("--limit-cusips", type=int, default=0, help="Optional cap on distinct CUSIPs.")
     enrich.add_argument("--log-file", default="", help="Optional structured log output path.")
+
+    validate = sub.add_parser(
+        "validate-live",
+        help="Validate manager/security analytics against raw holdings and optional third-party snapshots.",
+    )
+    validate.add_argument(
+        "--manager-key",
+        action="append",
+        default=[],
+        help="Manager key to validate (manager_id or cik). Repeatable.",
+    )
+    validate.add_argument(
+        "--ticker",
+        action="append",
+        default=[],
+        help="Ticker to validate. Repeatable.",
+    )
+    validate.add_argument("--sample-managers", type=int, default=10, help="Sample additional managers from universe.")
+    validate.add_argument("--sample-tickers", type=int, default=20, help="Sample additional tickers from holdings.")
+    validate.add_argument(
+        "--tolerance-pct",
+        type=float,
+        default=0.25,
+        help="Relative tolerance percent for numeric comparisons.",
+    )
+    validate.add_argument(
+        "--external-provider",
+        choices=["none", "nasdaq", "polygon", "alphavantage", "auto"],
+        default="none",
+        help="Optional external snapshot source.",
+    )
+    validate.add_argument("--json-out", default="", help="Optional path to write JSON report.")
+    validate.add_argument(
+        "--fail-on-error",
+        action="store_true",
+        default=False,
+        help="Exit non-zero when internal validation errors are found.",
+    )
 
     sub.add_parser("refresh-aggregates", help="Rebuild aggregate tables from mapped holdings.")
     return parser
@@ -399,12 +472,206 @@ def _discover_13f_ciks(quarters: int, max_ciks: int, out_path: str) -> None:
                 scores[digits.zfill(10)] += 1
 
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
-    selected = [cik for cik, _score in ranked[: max(1, max_ciks)]]
+    if max_ciks <= 0 or max_ciks >= len(ranked):
+        selected = [cik for cik, _score in ranked]
+        cutoff_score = ranked[-1][1] if ranked else 0
+    else:
+        cutoff_score = ranked[max_ciks - 1][1]
+        selected = [cik for cik, score in ranked if score >= cutoff_score]
     out_file.write_text("\n".join(selected) + ("\n" if selected else ""), encoding="utf-8")
     print(
         f"quarters_scanned={scanned_indexes} discovered={len(scores)} "
-        f"selected={len(selected)} out={out_file}"
+        f"selected={len(selected)} requested_max={max_ciks} cutoff_score={cutoff_score} out={out_file}"
     )
+
+
+def _prune_below_aum(top_n: int) -> None:
+    from sqlalchemy.orm import Session
+
+    engine = get_engine()
+    ensure_schema_and_seed(engine)
+    with Session(bind=engine) as db:
+        latest = db.execute(
+            text(
+                """
+                SELECT MAX(report_date)
+                FROM holdings_13f
+                WHERE option_type IS NULL
+                  AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+                """
+            )
+        ).scalar()
+        if latest is None:
+            print("prune_skipped reason=no_mapped_holdings")
+            return
+
+        keep_rows = db.execute(
+            text(
+                """
+                WITH ranked AS (
+                  SELECT
+                    manager_id,
+                    ROW_NUMBER() OVER (ORDER BY SUM(COALESCE(value_usd_thousands, 0)) DESC, manager_id ASC) AS rnk
+                  FROM holdings_13f
+                  WHERE report_date = :latest
+                    AND option_type IS NULL
+                    AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+                  GROUP BY manager_id
+                )
+                SELECT manager_id
+                FROM ranked
+                WHERE rnk <= :top_n
+                """
+            ),
+            {"latest": latest, "top_n": top_n},
+        ).all()
+        keep_ids = [int(x[0]) for x in keep_rows if x and x[0] is not None]
+        if not keep_ids:
+            print("prune_skipped reason=empty_keep_set")
+            return
+
+        before = {
+            "managers": int(db.execute(text("SELECT COUNT(*) FROM managers")).scalar() or 0),
+            "filings": int(db.execute(text("SELECT COUNT(*) FROM filings")).scalar() or 0),
+            "holdings": int(db.execute(text("SELECT COUNT(*) FROM holdings_13f")).scalar() or 0),
+            "events": int(db.execute(text("SELECT COUNT(*) FROM beneficial_ownership_events")).scalar() or 0),
+            "manager_universe": int(db.execute(text("SELECT COUNT(*) FROM manager_universe")).scalar() or 0),
+            "agg_manager_quarter": int(db.execute(text("SELECT COUNT(*) FROM agg_manager_quarter")).scalar() or 0),
+        }
+
+        db.execute(
+            text("DELETE FROM manager_universe WHERE manager_id NOT IN :keep_ids").bindparams(
+                bindparam("keep_ids", expanding=True)
+            ),
+            {"keep_ids": keep_ids},
+        )
+        db.execute(
+            text("DELETE FROM agg_manager_quarter WHERE manager_id NOT IN :keep_ids").bindparams(
+                bindparam("keep_ids", expanding=True)
+            ),
+            {"keep_ids": keep_ids},
+        )
+        db.execute(
+            text("DELETE FROM beneficial_ownership_events WHERE manager_id IS NOT NULL AND manager_id NOT IN :keep_ids").bindparams(
+                bindparam("keep_ids", expanding=True)
+            ),
+            {"keep_ids": keep_ids},
+        )
+        db.execute(
+            text("DELETE FROM holdings_13f WHERE manager_id NOT IN :keep_ids").bindparams(
+                bindparam("keep_ids", expanding=True)
+            ),
+            {"keep_ids": keep_ids},
+        )
+        db.execute(
+            text("DELETE FROM filings WHERE manager_id IS NOT NULL AND manager_id NOT IN :keep_ids").bindparams(
+                bindparam("keep_ids", expanding=True)
+            ),
+            {"keep_ids": keep_ids},
+        )
+        db.execute(
+            text("DELETE FROM managers WHERE manager_id NOT IN :keep_ids").bindparams(bindparam("keep_ids", expanding=True)),
+            {"keep_ids": keep_ids},
+        )
+        db.commit()
+
+        after = {
+            "managers": int(db.execute(text("SELECT COUNT(*) FROM managers")).scalar() or 0),
+            "filings": int(db.execute(text("SELECT COUNT(*) FROM filings")).scalar() or 0),
+            "holdings": int(db.execute(text("SELECT COUNT(*) FROM holdings_13f")).scalar() or 0),
+            "events": int(db.execute(text("SELECT COUNT(*) FROM beneficial_ownership_events")).scalar() or 0),
+            "manager_universe": int(db.execute(text("SELECT COUNT(*) FROM manager_universe")).scalar() or 0),
+            "agg_manager_quarter": int(db.execute(text("SELECT COUNT(*) FROM agg_manager_quarter")).scalar() or 0),
+        }
+
+    print(
+        "prune_complete "
+        f"top_n={top_n} latest={latest} keep={len(keep_ids)} "
+        f"managers_removed={before['managers'] - after['managers']} "
+        f"filings_removed={before['filings'] - after['filings']} "
+        f"holdings_removed={before['holdings'] - after['holdings']} "
+        f"events_removed={before['events'] - after['events']}"
+    )
+
+
+def _seed_top_aum(
+    top_n: int,
+    limit: int,
+    include_13dg: bool,
+    dataset_url: str,
+    out_path: str,
+    prune_below_threshold: bool,
+) -> None:
+    from sqlalchemy.orm import Session
+
+    from app.clients.rate_limit import ProviderRateLimiter
+    from app.clients.sec_client import SecClient, build_sec_http_session
+    from app.ingest.sec_13dg import Sec13DGIngestionService
+    from app.ingest.sec_13f import Sec13FIngestionService
+    from app.pipeline.aum_seed import fetch_top_managers_by_13f_value
+
+    settings = get_settings()
+    engine = get_engine()
+    ensure_schema_and_seed(engine)
+
+    limiter = ProviderRateLimiter()
+    limiter.register(provider="SEC", rate_per_sec=float(settings.sec_burst_per_second))
+    session = build_sec_http_session()
+
+    selected_dataset_url, records = fetch_top_managers_by_13f_value(
+        session=session,
+        limiter=limiter,
+        top_n=top_n,
+        dataset_url=dataset_url,
+    )
+    target_ciks = [r.cik for r in records]
+    out_file = Path(out_path)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_file.write_text("\n".join(target_ciks) + ("\n" if target_ciks else ""), encoding="utf-8")
+
+    with Session(bind=engine) as db:
+        existing_rows = db.execute(
+            text("SELECT cik FROM managers WHERE cik IS NOT NULL AND cik IN :target_ciks").bindparams(
+                bindparam("target_ciks", expanding=True)
+            ),
+            {"target_ciks": target_ciks or ["0000000000"]},
+        ).all()
+        existing = {str(x[0]) for x in existing_rows if x and x[0]}
+        missing = [c for c in target_ciks if c not in existing]
+
+        client = SecClient(session=session, limiter=limiter, db=db)
+        svc_13f = Sec13FIngestionService(db=db, sec_client=client)
+        svc_13dg = Sec13DGIngestionService(db=db, sec_client=client)
+
+        total_filings = 0
+        total_holdings = 0
+        total_events = 0
+        for cik in missing:
+            r13f = svc_13f.ingest_for_cik(cik=cik, limit=limit)
+            total_filings += r13f.filings_upserted
+            total_holdings += r13f.holdings_inserted
+            if include_13dg:
+                r13dg = svc_13dg.ingest_for_cik(cik=cik, limit=limit)
+                total_filings += r13dg.filings_upserted
+                total_events += r13dg.events_inserted
+
+    print(
+        "seed_top_aum_selected "
+        f"dataset_url={selected_dataset_url} top_n={top_n} selected={len(target_ciks)} "
+        f"existing={len(existing)} missing={len(missing)} out={out_file}"
+    )
+    print(
+        f"seed_top_aum_ingest filings_upserted={total_filings} "
+        f"holdings_inserted={total_holdings} events_inserted={total_events}"
+    )
+
+    _resolve_mappings(limit=None)
+    _refresh_aggregates()
+    _refresh_universe(top_n=top_n)
+    if prune_below_threshold:
+        _prune_below_aum(top_n=top_n)
+        _refresh_aggregates()
+        _refresh_universe(top_n=top_n)
 
 
 def _pipeline_run(
@@ -969,6 +1236,42 @@ def _refresh_aggregates() -> None:
         print(f"security_rows={summary.security_rows} manager_rows={summary.manager_rows}")
 
 
+def _validate_live(
+    manager_keys: list[str],
+    tickers: list[str],
+    sample_managers: int,
+    sample_tickers: int,
+    tolerance_pct: float,
+    external_provider: str,
+    json_out: str,
+    fail_on_error: bool,
+) -> None:
+    from sqlalchemy.orm import Session
+
+    from app.validation.live_validation import report_to_json, report_to_text, run_live_validation
+
+    engine = get_engine()
+    ensure_schema_and_seed(engine)
+    with Session(bind=engine) as db:
+        report = run_live_validation(
+            db=db,
+            manager_keys=manager_keys,
+            tickers=tickers,
+            sample_managers=sample_managers,
+            sample_tickers=sample_tickers,
+            tolerance_pct=tolerance_pct,
+            external_provider=external_provider,
+        )
+    print(report_to_text(report))
+    if json_out:
+        out = Path(json_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(report_to_json(report), encoding="utf-8")
+        print(f"json_report={out}")
+    if fail_on_error and int(report.get("error_count", 0)) > 0:
+        raise SystemExit(2)
+
+
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
@@ -1032,6 +1335,15 @@ def main() -> None:
         _ingest_cik_list(file_path=args.file, limit=args.limit, include_13dg=args.include_13dg)
     elif args.command == "discover-13f-ciks":
         _discover_13f_ciks(quarters=args.quarters, max_ciks=args.max_ciks, out_path=args.out)
+    elif args.command == "seed-top-aum":
+        _seed_top_aum(
+            top_n=args.top_n,
+            limit=args.limit,
+            include_13dg=args.include_13dg,
+            dataset_url=args.dataset_url,
+            out_path=args.out,
+            prune_below_threshold=not bool(args.no_prune),
+        )
     elif args.command == "enrich-cusips":
         _enrich_cusips(
             recent_quarters=args.recent_quarters,
@@ -1041,6 +1353,17 @@ def main() -> None:
             provider_name=args.provider,
             limit_cusips=args.limit_cusips,
             log_file=args.log_file,
+        )
+    elif args.command == "validate-live":
+        _validate_live(
+            manager_keys=args.manager_key,
+            tickers=args.ticker,
+            sample_managers=args.sample_managers,
+            sample_tickers=args.sample_tickers,
+            tolerance_pct=args.tolerance_pct,
+            external_provider=args.external_provider,
+            json_out=args.json_out,
+            fail_on_error=args.fail_on_error,
         )
     elif args.command == "refresh-aggregates":
         _refresh_aggregates()
