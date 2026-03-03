@@ -197,6 +197,28 @@ export type HomeOverviewResponse = {
     bo_13d_share_30d: number;
     bo_13g_share_30d: number;
   };
+  trust: {
+    latest_quarter_loaded: string | null;
+    managers_in_universe: number;
+    managers_with_positions: number;
+    holdings_rows_latest_quarter: number;
+    mapping_coverage_pct_latest_quarter: number;
+  };
+  bo_activity_30d: {
+    unique_filers: number;
+    unique_securities: number;
+  };
+  largest_new_stake_30d: {
+    report_date: string;
+    percent_beneficial_owned: number;
+    shares_beneficial_owned: number | null;
+    security_id: number | null;
+    security_display: string | null;
+    ticker: string | null;
+    manager_id: number | null;
+    manager_name: string | null;
+    form_type: string | null;
+  } | null;
   pulse_series: {
     breadth_accum_pct: Array<{ report_date: string; value: number }>;
     participation_increase_pct: Array<{ report_date: string; value: number }>;
@@ -209,6 +231,7 @@ export type HomeOverviewResponse = {
       ticker: string | null;
       security_name: string | null;
       net_shares: number;
+      net_value_change_usd: number;
       net_holder_count: number;
       holders_count: number;
       top10_pct: number;
@@ -220,6 +243,7 @@ export type HomeOverviewResponse = {
       ticker: string | null;
       security_name: string | null;
       net_shares: number;
+      net_value_change_usd: number;
       net_holder_count: number;
       holders_count: number;
       top10_pct: number;
@@ -231,6 +255,7 @@ export type HomeOverviewResponse = {
       ticker: string | null;
       security_name: string | null;
       net_shares: number;
+      net_value_change_usd: number;
       net_holder_count: number;
       holders_count: number;
       top10_pct: number;

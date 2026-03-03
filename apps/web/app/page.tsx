@@ -120,6 +120,97 @@ export default async function HomePage() {
         ))}
       </div>
 
+      <div className="grid-2">
+        <div className="card">
+          <h3>Coverage & Freshness</h3>
+          <div className="kpi-grid">
+            <div>
+              <div className="muted">Latest Quarter</div>
+              <div>{overview.trust.latest_quarter_loaded ?? "-"}</div>
+            </div>
+            <div>
+              <div className="muted">Institutions in Universe</div>
+              <div>{fmtNumber(overview.trust.managers_in_universe)}</div>
+            </div>
+            <div>
+              <div className="muted">Institutions with Positions</div>
+              <div>{fmtNumber(overview.trust.managers_with_positions)}</div>
+            </div>
+            <div>
+              <div className="muted">Mapped Position Rows (Latest Quarter)</div>
+              <div>{fmtNumber(overview.trust.holdings_rows_latest_quarter)}</div>
+            </div>
+            <div>
+              <div className="muted">Mapped Analytics Coverage</div>
+              <div>{fmtPct(overview.trust.mapping_coverage_pct_latest_quarter)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <h3>13D/G Breadth (30d)</h3>
+          <div className="kpi-grid">
+            <div>
+              <div className="muted">Unique Filers</div>
+              <div>{fmtNumber(overview.bo_activity_30d.unique_filers)}</div>
+            </div>
+            <div>
+              <div className="muted">Unique Securities</div>
+              <div>{fmtNumber(overview.bo_activity_30d.unique_securities)}</div>
+            </div>
+          </div>
+          <p className="page-subtitle">
+            Distinct beneficial owners and distinct security keys seen in the last 30 days.
+          </p>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>Largest New Stake (30d)</h3>
+        {overview.largest_new_stake_30d ? (
+          <div className="kpi-grid">
+            <div>
+              <div className="muted">Security</div>
+              <div>
+                {overview.largest_new_stake_30d.ticker ? (
+                  <Link href={`/security/${encodeURIComponent(overview.largest_new_stake_30d.ticker)}`}>
+                    {overview.largest_new_stake_30d.ticker}
+                  </Link>
+                ) : (
+                  overview.largest_new_stake_30d.security_display ?? "-"
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="muted">Institution</div>
+              <div>
+                {overview.largest_new_stake_30d.manager_id ? (
+                  <Link href={`/institution/${overview.largest_new_stake_30d.manager_id}`}>
+                    {overview.largest_new_stake_30d.manager_name ?? `Institution ${overview.largest_new_stake_30d.manager_id}`}
+                  </Link>
+                ) : (
+                  overview.largest_new_stake_30d.manager_name ?? "-"
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="muted">% Beneficial Owned</div>
+              <div>{fmtPct((overview.largest_new_stake_30d.percent_beneficial_owned ?? 0) / 100)}</div>
+            </div>
+            <div>
+              <div className="muted">Date</div>
+              <div>{overview.largest_new_stake_30d.report_date ?? "-"}</div>
+            </div>
+            <div>
+              <div className="muted">Form</div>
+              <div>{overview.largest_new_stake_30d.form_type ?? "-"}</div>
+            </div>
+          </div>
+        ) : (
+          <p className="muted">No NEW_5PCT event found in the last 30 days.</p>
+        )}
+      </div>
+
       <div className="movers-grid">
         {columns.map((column) => (
           <div key={column.key} className="card">
@@ -129,7 +220,7 @@ export default async function HomePage() {
                 <thead>
                   <tr>
                     <th>Security</th>
-                    <th>Net Shares</th>
+                    <th>Net Value (QoQ)</th>
                     <th>Net Holders</th>
                     <th>Spark</th>
                   </tr>
@@ -145,7 +236,9 @@ export default async function HomePage() {
                             row.security_name ?? `Security ${row.security_id}`
                           )}
                         </td>
-                        <td className={row.net_shares >= 0 ? "badge-pos" : "badge-neg"}>{fmtSigned(row.net_shares, 0)}</td>
+                        <td className={row.net_value_change_usd >= 0 ? "badge-pos" : "badge-neg"}>
+                          {fmtSignedUsd(row.net_value_change_usd)}
+                        </td>
                         <td className={row.net_holder_count >= 0 ? "badge-pos" : "badge-neg"}>{fmtSigned(row.net_holder_count, 0)}</td>
                         <td className="spark-cell">
                           <Sparkline data={row.series as SparkPoint[]} />

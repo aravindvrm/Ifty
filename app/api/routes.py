@@ -1879,6 +1879,18 @@ def home_overview(
                 "bo_13d_share_30d": 0.0,
                 "bo_13g_share_30d": 0.0,
             },
+            "trust": {
+                "latest_quarter_loaded": quarters_desc[0] if quarters_desc else None,
+                "managers_in_universe": 0,
+                "managers_with_positions": 0,
+                "holdings_rows_latest_quarter": 0,
+                "mapping_coverage_pct_latest_quarter": 0.0,
+            },
+            "bo_activity_30d": {
+                "unique_filers": 0,
+                "unique_securities": 0,
+            },
+            "largest_new_stake_30d": None,
             "pulse_series": {
                 "breadth_accum_pct": [],
                 "participation_increase_pct": [],
@@ -1967,6 +1979,99 @@ def home_overview(
     d30 = (today - timedelta(days=30)).isoformat()
     today_iso = today.isoformat()
     form_13d_30d, form_13g_30d = _bo_mix_between(start_exclusive=d30, end_inclusive=today_iso)
+
+    trust_row = db.execute(
+        text(
+            """
+            SELECT
+              (SELECT COUNT(*) FROM manager_universe WHERE is_active = 1) AS managers_in_universe,
+              (SELECT COUNT(*) FROM agg_manager_quarter WHERE report_date = :latest_quarter) AS managers_with_positions,
+              COALESCE((SELECT SUM(positions_count) FROM agg_manager_quarter WHERE report_date = :latest_quarter), 0) AS holdings_rows_latest_quarter
+            """
+        ),
+        {"latest_quarter": latest_quarter},
+    ).mappings().first() or {}
+    holdings_rows_latest_quarter = int(trust_row.get("holdings_rows_latest_quarter", 0) or 0)
+    mapping_coverage_pct_latest_quarter = 1.0 if holdings_rows_latest_quarter > 0 else 0.0
+
+    bo_activity_30d_row = db.execute(
+        text(
+            """
+            SELECT
+              COUNT(DISTINCT COALESCE(CAST(b.manager_id AS TEXT), NULLIF(TRIM(f.cik), ''))) AS unique_filers,
+              COUNT(
+                DISTINCT COALESCE(
+                  CAST(b.security_id AS TEXT),
+                  NULLIF(UPPER(TRIM(b.ticker_raw)), ''),
+                  NULLIF(UPPER(REPLACE(REPLACE(TRIM(b.cusip_raw), '-', ''), ' ', '')), ''),
+                  NULLIF(UPPER(TRIM(b.issuer_name_raw)), '')
+                )
+              ) AS unique_securities
+            FROM beneficial_ownership_events b
+            JOIN filings f ON f.filing_id = b.filing_id
+            WHERE b.report_date >= :start_date
+              AND b.report_date <= :end_date
+            """
+        ),
+        {"start_date": d30, "end_date": today_iso},
+    ).mappings().first() or {}
+
+    largest_new_stake_rows = db.execute(
+        text(
+            """
+            SELECT
+              b.report_date,
+              b.event_type,
+              b.percent_beneficial_owned,
+              b.shares_beneficial_owned,
+              b.security_id,
+              b.issuer_name_raw,
+              b.ticker_raw,
+              m.manager_id,
+              m.manager_name,
+              f.form_type,
+              (
+                SELECT si.id_value
+                FROM security_identifiers si
+                WHERE si.security_id = b.security_id
+                  AND si.id_type = 'TICKER'
+                  AND (si.valid_to IS NULL OR date('now') < date(si.valid_to))
+                ORDER BY si.valid_from DESC
+                LIMIT 1
+              ) AS ticker
+            FROM beneficial_ownership_events b
+            LEFT JOIN managers m ON m.manager_id = b.manager_id
+            JOIN filings f ON f.filing_id = b.filing_id
+            WHERE b.event_type = 'NEW_5PCT'
+              AND b.report_date >= :start_date
+              AND b.report_date <= :end_date
+              AND b.percent_beneficial_owned IS NOT NULL
+            ORDER BY b.percent_beneficial_owned DESC, b.report_date DESC, b.bo_event_id DESC
+            LIMIT 100
+            """
+        ),
+        {"start_date": d30, "end_date": today_iso},
+    ).mappings().all()
+    largest_new_stake = None
+    if largest_new_stake_rows:
+        candidate_rows = [dict(x) for x in largest_new_stake_rows]
+        chosen_row = candidate_rows[0]
+        for candidate in candidate_rows:
+            if _derive_feed_security_display(candidate):
+                chosen_row = candidate
+                break
+        security_display = _derive_feed_security_display(chosen_row)
+        largest_new_stake = {
+            "report_date": chosen_row.get("report_date"),
+            "percent_beneficial_owned": float(chosen_row.get("percent_beneficial_owned") or 0.0),
+            "shares_beneficial_owned": chosen_row.get("shares_beneficial_owned"),
+            "security_id": chosen_row.get("security_id"),
+            "security_display": security_display,
+            "ticker": chosen_row.get("ticker"),
+            "manager_id": chosen_row.get("manager_id"),
+            "manager_name": chosen_row.get("manager_name"),
+            "form_type": chosen_row.get("form_type"),
+        }
     pulse_series_breadth: list[dict[str, object]] = []
     pulse_series_participation: list[dict[str, object]] = []
     pulse_series_value: list[dict[str, object]] = []
@@ -2015,7 +2120,8 @@ def home_overview(
                   COALESCE(p.holders_count, 0) AS prev_holders_count,
                   COALESCE(c.total_shares, 0) AS curr_total_shares,
                   COALESCE(p.total_shares, 0) AS prev_total_shares,
-                  COALESCE(c.total_value_usd, 0) AS total_value_usd,
+                  COALESCE(c.total_value_usd, 0) AS curr_total_value_usd,
+                  COALESCE(p.total_value_usd, 0) AS prev_total_value_usd,
                   COALESCE(c.top10_pct, 0) AS top10_pct,
                   COALESCE(s.instrument_type, '') AS instrument_type,
                   s.security_name,
@@ -2047,32 +2153,34 @@ def home_overview(
         for row in rows:
             net_shares = float(row["curr_total_shares"] or 0.0) - float(row["prev_total_shares"] or 0.0)
             net_holder_count = int(row["curr_holders_count"] or 0) - int(row["prev_holders_count"] or 0)
+            net_value_change_usd = float(row["curr_total_value_usd"] or 0.0) - float(row["prev_total_value_usd"] or 0.0)
             out.append(
                 {
                     "security_id": int(row["security_id"]),
                     "ticker": row["ticker"],
                     "security_name": row["security_name"],
                     "net_shares": net_shares,
+                    "net_value_change_usd": net_value_change_usd * value_scale,
                     "net_holder_count": net_holder_count,
                     "holders_count": int(row["curr_holders_count"] or 0),
                     "top10_pct": float(row["top10_pct"] or 0.0),
-                    "total_value_usd": float(row["total_value_usd"] or 0.0),
+                    "total_value_usd": float(row["curr_total_value_usd"] or 0.0) * value_scale,
                     "instrument_type": row["instrument_type"],
                 }
             )
         return [x for x in out if _is_eligible_home_security(x)][:top_n]
 
     accumulated = _fetch_ranked_movers(
-        where_clause="(COALESCE(c.total_shares, 0) - COALESCE(p.total_shares, 0)) > 0",
-        order_clause="(COALESCE(c.total_shares, 0) - COALESCE(p.total_shares, 0)) DESC, COALESCE(c.total_value_usd, 0) DESC",
+        where_clause="(COALESCE(c.total_value_usd, 0) - COALESCE(p.total_value_usd, 0)) > 0",
+        order_clause="(COALESCE(c.total_value_usd, 0) - COALESCE(p.total_value_usd, 0)) DESC, (COALESCE(c.holders_count, 0) - COALESCE(p.holders_count, 0)) DESC",
     )
     distributed = _fetch_ranked_movers(
-        where_clause="(COALESCE(c.total_shares, 0) - COALESCE(p.total_shares, 0)) < 0",
-        order_clause="(COALESCE(c.total_shares, 0) - COALESCE(p.total_shares, 0)) ASC, COALESCE(c.total_value_usd, 0) DESC",
+        where_clause="(COALESCE(c.total_value_usd, 0) - COALESCE(p.total_value_usd, 0)) < 0",
+        order_clause="(COALESCE(c.total_value_usd, 0) - COALESCE(p.total_value_usd, 0)) ASC, (COALESCE(c.holders_count, 0) - COALESCE(p.holders_count, 0)) ASC",
     )
     new_holders = _fetch_ranked_movers(
         where_clause="(COALESCE(c.holders_count, 0) - COALESCE(p.holders_count, 0)) > 0",
-        order_clause="(COALESCE(c.holders_count, 0) - COALESCE(p.holders_count, 0)) DESC, (COALESCE(c.total_shares, 0) - COALESCE(p.total_shares, 0)) DESC",
+        order_clause="(COALESCE(c.holders_count, 0) - COALESCE(p.holders_count, 0)) DESC, (COALESCE(c.total_value_usd, 0) - COALESCE(p.total_value_usd, 0)) DESC",
     )
 
     spark_ids = sorted(
@@ -2188,6 +2296,18 @@ def home_overview(
             if (form_13d_30d + form_13g_30d) > 0
             else 0.0,
         },
+        "trust": {
+            "latest_quarter_loaded": latest_quarter,
+            "managers_in_universe": int(trust_row.get("managers_in_universe", 0) or 0),
+            "managers_with_positions": int(trust_row.get("managers_with_positions", 0) or 0),
+            "holdings_rows_latest_quarter": holdings_rows_latest_quarter,
+            "mapping_coverage_pct_latest_quarter": mapping_coverage_pct_latest_quarter,
+        },
+        "bo_activity_30d": {
+            "unique_filers": int(bo_activity_30d_row.get("unique_filers", 0) or 0),
+            "unique_securities": int(bo_activity_30d_row.get("unique_securities", 0) or 0),
+        },
+        "largest_new_stake_30d": largest_new_stake,
         "pulse_series": {
             "breadth_accum_pct": pulse_series_breadth,
             "participation_increase_pct": pulse_series_participation,
