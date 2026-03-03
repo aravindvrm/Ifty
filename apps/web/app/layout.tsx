@@ -16,9 +16,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="brand">Institutional Flow Tracker</div>
           <nav>
             <Link href="/">Home</Link>
-            <Link href="/screeners">Screeners</Link>
+            <Link href="/feed">Feed</Link>
             <Link href="/security">Security</Link>
-            <Link href="/manager">Manager</Link>
+            <Link href="/institution">Institution</Link>
             <Link href="/ops">Ops</Link>
           </nav>
         </header>

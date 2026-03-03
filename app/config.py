@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     api_verbose_logs: int = 0
     api_slow_request_ms: int = 1500
     aum_top_n_default: int = 100
+    api_cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    retention_13dg_days: int = 120
 
 
 @lru_cache

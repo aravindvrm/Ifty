@@ -33,7 +33,21 @@ class SecurityResolverService:
     def _normalize_cusip(value: str | None) -> str | None:
         if not value:
             return None
-        cleaned = "".join(ch for ch in value.upper().strip() if ch.isalnum())
+        upper_raw = value.upper().strip()
+        if (
+            upper_raw.startswith("ITEM")
+            or upper_raw.startswith("CUSIP")
+            or upper_raw.startswith(")")
+            or upper_raw.startswith("(")
+            or " VARIABLE " in upper_raw
+            or " REMARKET" in upper_raw
+        ):
+            return None
+        cleaned = "".join(ch for ch in upper_raw if ch.isalnum())
+        if len(cleaned) < 8:
+            return None
+        if cleaned and not any(ch.isdigit() for ch in cleaned):
+            return None
         return cleaned or None
 
     @staticmethod
@@ -79,12 +93,16 @@ class SecurityResolverService:
                         WHERE cusip_raw IS NOT NULL
                           AND TRIM(cusip_raw) <> ''
                           AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) >= 8
+                          AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) ~ '[0-9]'
                         UNION
                         SELECT SUBSTRING(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) FROM 1 FOR 9) AS cusip_norm
                         FROM beneficial_ownership_events
                         WHERE cusip_raw IS NOT NULL
                           AND TRIM(cusip_raw) <> ''
-                          AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) >= 8
+                          AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) = 9
+                          AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) ~ '[0-9]'
+                          AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) !~ '^ITEM'
+                          AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) !~ '^CUSIP'
                       ) all_cusips
                       ORDER BY 1
                       {limit_clause}
@@ -438,6 +456,7 @@ class SecurityResolverService:
                               AND cusip_raw IS NOT NULL
                               AND TRIM(cusip_raw) <> ''
                               AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) >= 8
+                              AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) ~ '[0-9]'
                             """
                         ),
                         {"report_date": report_date},
@@ -459,6 +478,7 @@ class SecurityResolverService:
                                 AND h.report_date = :report_date
                                 AND h.cusip_raw IS NOT NULL
                                 AND TRIM(h.cusip_raw) <> ''
+                                AND UPPER(REGEXP_REPLACE(TRIM(h.cusip_raw), '[^A-Z0-9]', '', 'g')) ~ '[0-9]'
                                 AND si.id_type = 'CUSIP'
                                 AND si.id_value = SUBSTRING(
                                   UPPER(REGEXP_REPLACE(TRIM(h.cusip_raw), '[^A-Z0-9]', '', 'g'))
@@ -544,6 +564,10 @@ class SecurityResolverService:
                 WHERE security_id IS NULL
                   AND cusip_raw IS NOT NULL
                   AND TRIM(cusip_raw) <> ''
+                  AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) = 9
+                  AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) ~ '[0-9]'
+                  AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) !~ '^ITEM'
+                  AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) !~ '^CUSIP'
                 ORDER BY report_date DESC NULLS LAST
             """
             params: dict[str, int] = {}
@@ -565,7 +589,10 @@ class SecurityResolverService:
                                   AND report_date IS NULL
                                   AND cusip_raw IS NOT NULL
                                   AND TRIM(cusip_raw) <> ''
-                                  AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) >= 8
+                                  AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) = 9
+                                  AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) ~ '[0-9]'
+                                  AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) !~ '^ITEM'
+                                  AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) !~ '^CUSIP'
                                 """
                             )
                         ).scalar()
@@ -583,7 +610,10 @@ class SecurityResolverService:
                                   AND report_date = :report_date
                                   AND cusip_raw IS NOT NULL
                                   AND TRIM(cusip_raw) <> ''
-                                  AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) >= 8
+                                  AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g'))) = 9
+                                  AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) ~ '[0-9]'
+                                  AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) !~ '^ITEM'
+                                  AND UPPER(REGEXP_REPLACE(TRIM(cusip_raw), '[^A-Z0-9]', '', 'g')) !~ '^CUSIP'
                                 """
                             ),
                             p,
@@ -606,6 +636,10 @@ class SecurityResolverService:
                                     AND b.report_date IS NULL
                                     AND b.cusip_raw IS NOT NULL
                                     AND TRIM(b.cusip_raw) <> ''
+                                    AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(b.cusip_raw), '[^A-Z0-9]', '', 'g'))) = 9
+                                    AND UPPER(REGEXP_REPLACE(TRIM(b.cusip_raw), '[^A-Z0-9]', '', 'g')) ~ '[0-9]'
+                                    AND UPPER(REGEXP_REPLACE(TRIM(b.cusip_raw), '[^A-Z0-9]', '', 'g')) !~ '^ITEM'
+                                    AND UPPER(REGEXP_REPLACE(TRIM(b.cusip_raw), '[^A-Z0-9]', '', 'g')) !~ '^CUSIP'
                                     AND si.id_type = 'CUSIP'
                                     AND si.id_value = SUBSTRING(
                                       UPPER(REGEXP_REPLACE(TRIM(b.cusip_raw), '[^A-Z0-9]', '', 'g'))
@@ -635,6 +669,10 @@ class SecurityResolverService:
                                     AND b.report_date = :report_date
                                     AND b.cusip_raw IS NOT NULL
                                     AND TRIM(b.cusip_raw) <> ''
+                                    AND LENGTH(UPPER(REGEXP_REPLACE(TRIM(b.cusip_raw), '[^A-Z0-9]', '', 'g'))) = 9
+                                    AND UPPER(REGEXP_REPLACE(TRIM(b.cusip_raw), '[^A-Z0-9]', '', 'g')) ~ '[0-9]'
+                                    AND UPPER(REGEXP_REPLACE(TRIM(b.cusip_raw), '[^A-Z0-9]', '', 'g')) !~ '^ITEM'
+                                    AND UPPER(REGEXP_REPLACE(TRIM(b.cusip_raw), '[^A-Z0-9]', '', 'g')) !~ '^CUSIP'
                                     AND si.id_type = 'CUSIP'
                                     AND si.id_value = SUBSTRING(
                                       UPPER(REGEXP_REPLACE(TRIM(b.cusip_raw), '[^A-Z0-9]', '', 'g'))

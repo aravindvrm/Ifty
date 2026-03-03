@@ -1,4 +1,4 @@
-import { getApiUsage, getManagerUniverse, getPipelineRunLatest } from "@/lib/api";
+import { getApiUsage, getInstitutionUniverse, getPipelineRunLatest } from "@/lib/api";
 import { fmtNumber } from "@/lib/format";
 import { OpsControls } from "@/components/ops-controls";
 
@@ -7,7 +7,7 @@ export default async function OpsPage() {
   let usage;
   let pipeline;
   try {
-    [universe, usage, pipeline] = await Promise.all([getManagerUniverse(300), getApiUsage(7, 100), getPipelineRunLatest()]);
+    [universe, usage, pipeline] = await Promise.all([getInstitutionUniverse(300), getApiUsage(7, 100), getPipelineRunLatest()]);
   } catch (error) {
     return (
       <div className="card">
@@ -36,7 +36,7 @@ export default async function OpsPage() {
       <div className="card">
         <h1 className="page-title">Ops Console</h1>
         <p className="page-subtitle">
-          Manager universe and API usage telemetry (last 7 days). This is the control plane for scoped ingestion.
+          Institution universe and API usage telemetry (last 7 days). This is the control plane for scoped ingestion.
         </p>
       </div>
 
@@ -99,13 +99,13 @@ python -m app.cli update-incremental --top-n 300 --ingest-limit 20 --resolve-qua
       </div>
 
       <div className="card">
-        <h3>Manager Universe</h3>
+        <h3>Institution Universe</h3>
         <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
                 <th>Rank</th>
-                <th>Manager</th>
+                <th>Institution</th>
                 <th>CIK</th>
                 <th>Total Value (USD)</th>
                 <th>As Of</th>

@@ -87,6 +87,48 @@ function formatByType(value: number, kind: "usd_thousands" | "number"): string {
   return kind === "usd_thousands" ? fmtUsdThousands(value) : fmtNumber(value);
 }
 
+function clamp(min: number, value: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function wrapWords(text: string, maxCharsPerLine: number, maxLines: number): string[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return [];
+  }
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (!current) {
+      current = word;
+      continue;
+    }
+    if ((`${current} ${word}`).length <= maxCharsPerLine) {
+      current = `${current} ${word}`;
+      continue;
+    }
+    lines.push(current);
+    current = word;
+    if (lines.length >= maxLines) {
+      break;
+    }
+  }
+  if (lines.length < maxLines && current) {
+    lines.push(current);
+  }
+  if (lines.length > maxLines) {
+    return lines.slice(0, maxLines);
+  }
+  const original = words.join(" ");
+  const rendered = lines.join(" ");
+  if (rendered.length < original.length && lines.length > 0) {
+    const last = lines[lines.length - 1];
+    const trimmed = last.length > 2 ? `${last.slice(0, last.length - 1)}…` : `${last}…`;
+    lines[lines.length - 1] = trimmed;
+  }
+  return lines;
+}
+
 function NivoNode({ node }: any) {
   if (!node?.isLeaf) {
     return null;
@@ -99,24 +141,37 @@ function NivoNode({ node }: any) {
   const label = String(node.data?.label ?? "");
   const isFullName = Boolean(node.data?.is_full_name);
   const valueLabel = String(node.data?.valueLabel ?? "");
-  const showSymbol = width >= 34 && height >= 24;
-  const showValue = width >= 70 && height >= 42;
-  const fontSizeSymbol = isFullName
-    ? Math.max(7, Math.min(11, Math.round(Math.min(width, height) * 0.12)))
-    : Math.max(8, Math.min(18, Math.round(Math.min(width, height) * 0.18)));
-  const fontSizeValue = Math.max(7, Math.min(12, Math.round(fontSizeSymbol * 0.68)));
-  const canWrapName = isFullName && width >= 96 && height >= 46 && label.includes(" ");
-  const words = label.split(/\s+/).filter(Boolean);
-  let line1 = label;
-  let line2 = "";
-  if (canWrapName && words.length > 1) {
-    const splitAt = Math.ceil(words.length / 2);
-    line1 = words.slice(0, splitAt).join(" ");
-    line2 = words.slice(splitAt).join(" ");
+  const showLabel = width >= 28 && height >= 22;
+  const showValue = width >= 96 && height >= 56;
+  const base = Math.min(width, height);
+  let fontSizeLabel = isFullName
+    ? clamp(8, Math.round(base * 0.18), 16)
+    : clamp(10, Math.round(base * 0.28), 28);
+  const maxLabelWidth = Math.max(18, width - 10);
+  if (!isFullName && label) {
+    const maxByWidth = maxLabelWidth / (Math.max(2, label.length) * 0.62);
+    const maxByHeight = (showValue ? height * 0.38 : height * 0.62);
+    fontSizeLabel = Math.floor(Math.min(fontSizeLabel, maxByWidth, maxByHeight));
   }
+  fontSizeLabel = clamp(8, fontSizeLabel, 28);
+  const maxCharsPerLine = Math.max(4, Math.floor(maxLabelWidth / Math.max(6, fontSizeLabel * 0.58)));
+  const labelLines = isFullName
+    ? wrapWords(label, maxCharsPerLine, showValue ? 2 : 3)
+    : [label];
+  const finalLabelLines = labelLines.filter(Boolean);
+  const showLabelLines = showLabel && finalLabelLines.length > 0;
+  const fontSizeValue = clamp(8, Math.round(fontSizeLabel * 0.62), 13);
+  const lineHeight = Math.round(fontSizeLabel * 1.04);
+  const labelStartY = showValue
+    ? height * 0.38 - ((finalLabelLines.length - 1) * lineHeight) / 2
+    : height * 0.5 - ((finalLabelLines.length - 1) * lineHeight) / 2;
+  const clipId = `tile-clip-${String(node.id).replace(/[^a-zA-Z0-9_-]/g, "")}`;
 
   return (
     <g transform={`translate(${node.x},${node.y})`}>
+      <clipPath id={clipId}>
+        <rect x={1} y={1} width={Math.max(0, width - 2)} height={Math.max(0, height - 2)} rx={5} ry={5} />
+      </clipPath>
       <rect
         width={width}
         height={height}
@@ -126,38 +181,35 @@ function NivoNode({ node }: any) {
         stroke="rgba(226, 232, 240, 0.24)"
         strokeWidth={1}
       />
-      {showSymbol ? (
+      {showLabelLines ? (
         <text
           x={width / 2}
-          y={showValue ? height * 0.43 : height * 0.52}
+          y={labelStartY}
           textAnchor="middle"
           dominantBaseline="middle"
           fill="#e2e8f0"
-          fontSize={fontSizeSymbol}
+          fontSize={fontSizeLabel}
           fontWeight={700}
-          style={{ pointerEvents: "none" }}
+          clipPath={`url(#${clipId})`}
+          style={{ pointerEvents: "none", textTransform: isFullName ? "none" : "uppercase" }}
         >
-          {canWrapName ? (
-            <>
-              <tspan x={width / 2} dy={line2 ? `-${Math.round(fontSizeSymbol * 0.5)}` : "0"}>
-                {line1}
-              </tspan>
-              {line2 ? <tspan x={width / 2} dy={Math.round(fontSizeSymbol * 1.05)}>{line2}</tspan> : null}
-            </>
-          ) : (
-            label
-          )}
+          {finalLabelLines.map((line, idx) => (
+            <tspan key={`${line}-${idx}`} x={width / 2} dy={idx === 0 ? 0 : lineHeight}>
+              {line}
+            </tspan>
+          ))}
         </text>
       ) : null}
       {showValue ? (
         <text
           x={width / 2}
-          y={height * 0.69}
+          y={height * 0.77}
           textAnchor="middle"
           dominantBaseline="middle"
           fill="rgba(226, 232, 240, 0.96)"
           fontSize={fontSizeValue}
           fontWeight={500}
+          clipPath={`url(#${clipId})`}
           style={{ pointerEvents: "none" }}
         >
           {valueLabel}

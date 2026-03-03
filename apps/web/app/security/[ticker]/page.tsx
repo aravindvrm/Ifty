@@ -19,7 +19,7 @@ function shiftDate(days: number): string {
 export default async function SecurityPage({ params, searchParams }: Props) {
   const { ticker } = await params;
   const query = await searchParams;
-  const startDate = query.start_date ?? shiftDate(-365);
+  const startDate = query.start_date ?? shiftDate(-3650);
   const endDate = query.end_date ?? shiftDate(0);
   const new5PctOnly = query.new_5pct_only === "1";
 
@@ -77,7 +77,7 @@ export default async function SecurityPage({ params, searchParams }: Props) {
         <p className="page-subtitle">Last report date: {latestQuarter ?? "-"} • MIC {security.mic || "N/A"} • Security ID {security.security_id}</p>
         <div className="input-row">
           <Link href="/security">Search another security</Link>
-          <Link href="/screeners">Back to Screeners</Link>
+          <Link href="/institution">Browse institutions</Link>
         </div>
       </div>
 
@@ -118,8 +118,6 @@ export default async function SecurityPage({ params, searchParams }: Props) {
         </div>
       </div>
 
-      <SecurityActivePositionsTable rows={security.active_positions ?? []} />
-
       <HoldingsHeatmap
         title="Institutional Holdings Heatmap"
         data={holdingsHeatmapData}
@@ -134,6 +132,8 @@ export default async function SecurityPage({ params, searchParams }: Props) {
         minTiles={20}
         emptyText="No active positions available for this security."
       />
+
+      <SecurityActivePositionsTable rows={security.active_positions ?? []} />
 
       <NetAccumulationBarChart data={barData} />
 
@@ -153,7 +153,7 @@ export default async function SecurityPage({ params, searchParams }: Props) {
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Manager</th>
+                <th>Institution</th>
                 <th>Event</th>
                 <th>Percent Owned</th>
                 <th>Form</th>

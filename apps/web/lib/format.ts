@@ -20,6 +20,7 @@ export function fmtUsdThousands(v: number | null | undefined): string {
     return "-";
   }
   const usd = v * 1000;
+  if (Math.abs(usd) >= 1_000_000_000_000) return `$${(usd / 1_000_000_000_000).toFixed(2)}T`;
   if (Math.abs(usd) >= 1_000_000_000) return `$${(usd / 1_000_000_000).toFixed(2)}B`;
   if (Math.abs(usd) >= 1_000_000) return `$${(usd / 1_000_000).toFixed(2)}M`;
   if (Math.abs(usd) >= 1_000) return `$${(usd / 1_000).toFixed(1)}K`;
@@ -30,6 +31,7 @@ export function fmtUsd(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) {
     return "-";
   }
+  if (Math.abs(v) >= 1_000_000_000_000) return `$${(v / 1_000_000_000_000).toFixed(2)}T`;
   if (Math.abs(v) >= 1_000_000_000) return `$${(v / 1_000_000_000).toFixed(2)}B`;
   if (Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
   if (Math.abs(v) >= 1_000) return `$${(v / 1_000).toFixed(1)}K`;

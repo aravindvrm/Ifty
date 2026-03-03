@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 
-POSTGRES_BOOTSTRAP_VERSION = "2026-02-28.1"
+POSTGRES_BOOTSTRAP_VERSION = "2026-03-03.1"
 
 
 def _ensure_sqlite_parent_exists(db_url: str) -> None:
@@ -174,6 +174,38 @@ def ensure_schema_and_seed(engine: Engine) -> None:
             conn.execute(
                 text(
                     """
+                    CREATE INDEX IF NOT EXISTS ix_filings_form_period
+                    ON filings (form_type, period_end_date, filed_at)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_filings_manager_period
+                    ON filings (manager_id, period_end_date)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_filings_form_filed_at
+                    ON filings (form_type, filed_at DESC)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_13f_manager_security_qtr
+                    ON holdings_13f (manager_id, security_id, report_date)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
                     CREATE INDEX IF NOT EXISTS ix_13f_manager_report_date
                     ON holdings_13f (manager_id, report_date)
                     """
@@ -217,6 +249,14 @@ def ensure_schema_and_seed(engine: Engine) -> None:
                 )
             )
             conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS ux_13f_row_dedup
+                    ON holdings_13f (filing_id, row_hash)
+                    """
+                )
+            )
+            conn.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_ident_idtype_idvalue ON security_identifiers (id_type, id_value)")
             )
             conn.execute(
@@ -234,6 +274,30 @@ def ensure_schema_and_seed(engine: Engine) -> None:
                     CREATE INDEX IF NOT EXISTS ix_ident_ticker_upper
                     ON security_identifiers (UPPER(id_value))
                     WHERE id_type = 'TICKER'
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_bo_security_date
+                    ON beneficial_ownership_events (security_id, report_date)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_bo_manager_date
+                    ON beneficial_ownership_events (manager_id, report_date)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_bo_filing_id
+                    ON beneficial_ownership_events (filing_id)
                     """
                 )
             )

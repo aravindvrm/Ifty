@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -85,6 +87,40 @@ def test_security_events_feed(api_client):
     assert body["rows"][0]["event_type"] == "NEW_5PCT"
 
 
+def test_13dg_feed(api_client):
+    response = api_client.get("/feeds/13dg?days=800&limit_n=50")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["counts"]["rows"] >= 1
+    assert body["rows"][0]["event_type"] == "NEW_5PCT"
+    assert body["rows"][0]["ticker"] == "AAPL"
+
+
+def test_13dg_feed_filters(api_client):
+    response = api_client.get("/feeds/13dg?days=800&limit_n=50&ticker=AAPL&manager_key=1&event_type=NEW_5PCT")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["counts"]["rows"] >= 1
+    assert all((x.get("ticker") or "") == "AAPL" for x in body["rows"])
+    assert all(int(x.get("manager_id") or 0) == 1 for x in body["rows"])
+
+
+def test_13dg_feed_text_search(api_client):
+    response = api_client.get("/feeds/13dg?days=800&limit_n=50&q=alpha")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["counts"]["rows"] >= 1
+    assert all("alpha" in (x.get("manager_name") or "").lower() for x in body["rows"])
+
+
+def test_13dg_feed_form_type_filter(api_client):
+    response = api_client.get("/feeds/13dg?days=800&limit_n=50&form_type=SC%2013D")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["counts"]["rows"] >= 1
+    assert all((x.get("form_type") or "").upper() == "SC 13D" for x in body["rows"])
+
+
 def test_accumulation_history(api_client):
     response = api_client.get("/screeners/accumulation-history?limit_n=10")
     assert response.status_code == 200
@@ -92,6 +128,65 @@ def test_accumulation_history(api_client):
     assert len(body["quarters"]) >= 2
     assert len(body["rows"]) >= 1
     assert body["rows"][0]["series"]
+
+
+def test_home_overview_filters_non_equity_like_movers(test_engine):
+    from app.dependencies import get_db
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    with test_engine.begin() as conn:
+        conn.execute(text("INSERT INTO issuers (issuer_id, issuer_name) VALUES (1, 'Apple Inc.'), (2, 'Option Issuer')"))
+        conn.execute(
+            text(
+                """
+                INSERT INTO securities (security_id, issuer_id, instrument_type, security_name, is_active)
+                VALUES
+                  (1, 1, 'EQUITY', 'Apple Inc.', 1),
+                  (2, 2, 'EQUITY', 'UBER 0 12/15/25', 1)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO security_identifiers (security_id, id_type, id_value, mic, valid_from, valid_to, source_system, confidence)
+                VALUES
+                  (1, 'TICKER', 'AAPL', 'XNAS', '2000-01-01', NULL, 'TEST', 1.0),
+                  (2, 'TICKER', 'UBER 0 12/15/25', 'XNAS', '2000-01-01', NULL, 'TEST', 1.0)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO agg_security_quarter
+                  (security_id, report_date, holders_count, total_shares, total_value_usd, top10_shares, top10_pct)
+                VALUES
+                  (1, '2025-09-30', 30, 1000, 1000000, 600, 0.60),
+                  (1, '2025-12-31', 31, 900, 950000, 580, 0.61),
+                  (2, '2025-09-30', 20, 900000, 3000000, 700000, 0.78),
+                  (2, '2025-12-31', 18, 100000, 2000000, 70000, 0.80)
+                """
+            )
+        )
+
+    def _override_get_db():
+        with Session(bind=test_engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    try:
+        with TestClient(app) as client:
+            res = client.get("/home/overview?quarters_n=8&top_n=20&scatter_n=0")
+            assert res.status_code == 200
+            body = res.json()
+            distributed = body["top_movers"]["distributed"]
+            assert distributed
+            assert all(re.fullmatch(r"^[A-Z]{1,6}(?:\\.[A-Z]{1,2})?$", (r.get("ticker") or "")) for r in distributed)
+            assert all("12/15/25" not in (r.get("security_name") or "") for r in distributed)
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_security_search(api_client):
@@ -272,6 +367,75 @@ def test_ops_pipeline_runs_latest_parses_metrics(test_engine):
             assert body["current"]["metrics"]["y"] == 2
             assert len(body["events"]) == 2
             assert body["events"][0]["metrics"]["x"] == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_13dg_feed_job(test_engine):
+    from app.dependencies import get_db, get_sec_client
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    class _FakeSecClient13DGRoute:
+        def get_submissions(self, cik: str):
+            return {
+                "name": "Alpha Capital",
+                "filings": {
+                    "recent": {
+                        "form": ["SC 13D"],
+                        "accessionNumber": ["0000000000-26-000001"],
+                        "filingDate": ["2026-02-28"],
+                        "reportDate": ["2026-02-27"],
+                        "primaryDocument": ["bo13d.txt"],
+                    }
+                },
+            }
+
+        def download_text(self, url: str):
+            return "ITEM 11. Percent of class represented by amount in Row (11): 5.6% CUSIP 037833100"
+
+    with test_engine.begin() as conn:
+        conn.execute(text("INSERT INTO managers (manager_id, cik, manager_name) VALUES (1, '0000000001', 'Alpha Capital')"))
+        conn.execute(text("INSERT INTO manager_universe (manager_id, rank, total_value_usd, as_of_report_date, source, is_active) VALUES (1, 1, 1, '2025-12-31', 'TEST', 1)"))
+        conn.execute(text("INSERT INTO issuers (issuer_id, issuer_name) VALUES (1, 'Apple Inc.')"))
+        conn.execute(
+            text(
+                """
+                INSERT INTO securities (security_id, issuer_id, instrument_type, security_name, is_active)
+                VALUES (1, 1, 'EQUITY', 'Apple Inc.', 1)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO security_identifiers (security_id, id_type, id_value, mic, valid_from, valid_to, source_system, confidence)
+                VALUES
+                  (1, 'CUSIP', '037833100', NULL, '2000-01-01', NULL, 'TEST', 1.0),
+                  (1, 'TICKER', 'AAPL', 'XNAS', '2000-01-01', NULL, 'TEST', 1.0)
+                """
+            )
+        )
+
+    def _override_get_db():
+        with Session(bind=test_engine) as session:
+            yield session
+
+    def _override_get_sec_client():
+        return _FakeSecClient13DGRoute()
+
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_sec_client] = _override_get_sec_client
+    try:
+            with TestClient(app) as client:
+                res = client.post(
+                    "/jobs/update-13dg-feed?top_n=10&per_manager_limit=5&resolve_limit=6&refresh_universe_if_empty=0&include_universe=1"
+                )
+            assert res.status_code == 200
+            body = res.json()
+            assert body["managers_scanned"] == 1
+            assert body["events_inserted"] == 1
+            assert body["bo_events_mapped"] >= 1
     finally:
         app.dependency_overrides.clear()
 

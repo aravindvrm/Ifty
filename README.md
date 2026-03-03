@@ -133,6 +133,39 @@ Optional coverage alert thresholds:
 - `--alert-min-13f-pct` (default `95.0`)
 - `--alert-min-bo-pct` (default `95.0`)
 
+16b. Daily 13D/G feed update (active universe):
+```bash
+python -m app.cli update-13dg-feed \
+  --per-manager-limit 20 \
+  --resolve-limit 6 \
+  --index-discovery-mode daily \
+  --discovery-days 21
+```
+This ingests recent `SC 13D/13G` filings from SEC index-discovered CIKs (daily mode) and resolves newly inserted BO events.  
+Use `--include-universe` only if you explicitly want to also scan `manager_universe` CIKs.
+
+One-time broader backfill (recommended after enabling this pipeline):
+```bash
+python -m app.cli update-13dg-feed \
+  --no-include-universe \
+  --index-discovery-mode both \
+  --discovery-days 120 \
+  --discovery-quarters 8 \
+  --discovery-max-ciks 0 \
+  --per-manager-limit 40 \
+  --resolve-limit 0
+```
+
+Discovery-only export (no ingest):
+```bash
+python -m app.cli discover-13dg-ciks --mode both --days 120 --quarters 8 --max-ciks 0 --out seeds/ciks.13dg.discovered.txt
+```
+
+Example cron (daily at 06:30 local):
+```bash
+30 6 * * * cd /Users/avrm/Documents/Repos/Codex/13F-tracker && /Users/avrm/Documents/Repos/Codex/13F-tracker/.venv/bin/python -m app.cli update-13dg-feed --per-manager-limit 20 --resolve-limit 6 --index-discovery-mode daily --discovery-days 21 >> logs/13dg_daily.log 2>&1
+```
+
 17. Live analytics validation (internal consistency + optional third-party snapshot):
 ```bash
 python -m app.cli validate-live \
@@ -202,8 +235,10 @@ Notes:
 - `POST /jobs/resolve-mappings?limit=...`
 - `POST /jobs/refresh-aggregates`
 - `POST /jobs/refresh-universe?top_n=...`
+- `POST /jobs/update-13dg-feed?top_n=...&per_manager_limit=...&resolve_limit=...&index_discovery_mode=...&discovery_days=...`
 - `GET /security/{ticker}`
 - `GET /security/{ticker}/events`
+- `GET /feeds/13dg?days=...&limit_n=...`
 - `GET /security/search?q=...`
 - `GET /manager/{manager_key}` (`manager_id` or `cik`)
 - `GET /screeners/accumulation?curr_q=YYYY-MM-DD&prev_q=YYYY-MM-DD`
@@ -223,4 +258,5 @@ Notes:
 - API request logging is verbose by design and captured in `api_request_log` for usage telemetry.
 - Seed file support: `ingest-cik-list --file <path>` accepts `.txt` (one CIK per line) or `.csv` with a `cik` column.
 - Discovery support: `discover-13f-ciks` scans recent SEC `master.idx` files for `13F-HR` / `13F-HR/A` filers and writes a deduplicated CIK list. Use `--max-ciks 0` for full coverage; capped runs are tie-aware and include all CIKs at the cutoff score.
+- 13D/G discovery support: `discover-13dg-ciks` scans SEC `daily-index` and/or `full-index` for `SC 13D/13G` filers and writes a deduplicated CIK list.
 - Scaling/retention runbook: `docs/postgres_scaling.md`.

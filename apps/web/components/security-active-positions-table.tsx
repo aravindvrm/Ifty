@@ -60,11 +60,11 @@ export function SecurityActivePositionsTable({ rows }: { rows: Row[] }) {
         <table className="table">
           <thead>
             <tr>
-              <th><button type="button" onClick={() => toggleSort("manager_name")}>Manager</button></th>
+              <th><button type="button" onClick={() => toggleSort("manager_name")}>Institution</button></th>
               <th><button type="button" onClick={() => toggleSort("shares")}>Shares</button></th>
               <th><button type="button" onClick={() => toggleSort("value_usd_thousands")}>Value</button></th>
               <th><button type="button" onClick={() => toggleSort("qoq_delta_shares")}>QoQ Δ Shares</button></th>
-              <th><button type="button" onClick={() => toggleSort("pct_manager_portfolio")}>% of Manager</button></th>
+              <th><button type="button" onClick={() => toggleSort("pct_manager_portfolio")}>% of Institution</button></th>
               <th>New</th>
             </tr>
           </thead>

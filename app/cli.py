@@ -6,6 +6,8 @@ import json
 import time
 from datetime import date
 from datetime import datetime
+from datetime import UTC
+from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy import bindparam, text
@@ -67,6 +69,82 @@ def _build_parser() -> argparse.ArgumentParser:
     incr.add_argument("--alert-min-13f-pct", type=float, default=95.0)
     incr.add_argument("--alert-min-bo-pct", type=float, default=95.0)
 
+    daily_13dg = sub.add_parser("update-13dg-feed", help="Run daily 13D/G feed update for active manager universe.")
+    daily_13dg.add_argument("--top-n", type=int, default=300)
+    daily_13dg.add_argument("--per-manager-limit", type=int, default=20)
+    daily_13dg.add_argument(
+        "--resolve-limit",
+        type=int,
+        default=6,
+        help="Distinct recent report_date batches to resolve; use 0 to resolve all.",
+    )
+    daily_13dg.add_argument("--refresh-universe-first", action="store_true", default=False)
+    daily_13dg.add_argument(
+        "--no-refresh-universe-if-empty",
+        action="store_true",
+        default=False,
+        help="Disable automatic universe refresh when manager_universe is empty.",
+    )
+    daily_13dg.add_argument(
+        "--include-universe",
+        action="store_true",
+        default=False,
+        help="Also ingest manager_universe CIKs in addition to SEC index discovery.",
+    )
+    daily_13dg.add_argument(
+        "--no-include-universe",
+        action="store_false",
+        dest="include_universe",
+        help=argparse.SUPPRESS,
+    )
+    daily_13dg.add_argument(
+        "--index-discovery-mode",
+        choices=["none", "daily", "quarterly", "both"],
+        default="daily",
+        help="How to discover 13D/G filer CIKs from SEC indexes.",
+    )
+    daily_13dg.add_argument("--discovery-days", type=int, default=21, help="Recent daily index days to scan.")
+    daily_13dg.add_argument("--discovery-quarters", type=int, default=6, help="Recent full-index quarters to scan.")
+    daily_13dg.add_argument("--discovery-max-ciks", type=int, default=300, help="Max discovered CIKs to ingest; 0 means all.")
+    daily_13dg.add_argument(
+        "--no-skip-unchanged-ciks",
+        action="store_true",
+        default=False,
+        help="Always re-fetch discovered CIKs even when latest filing dates look unchanged.",
+    )
+    daily_13dg.add_argument(
+        "--retention-days",
+        type=int,
+        default=int(settings.retention_13dg_days),
+        help="Keep this many recent days of 13D/G history (older rows are pruned).",
+    )
+    daily_13dg.add_argument(
+        "--no-retention-cleanup",
+        action="store_true",
+        default=False,
+        help="Disable automatic 13D/G history pruning after update.",
+    )
+
+    cleanup_13dg = sub.add_parser("cleanup-13dg", help="Prune old 13D/G rows and optionally vacuum/analyze.")
+    cleanup_13dg.add_argument(
+        "--keep-days",
+        type=int,
+        default=int(settings.retention_13dg_days),
+        help="Keep this many recent days of 13D/G history.",
+    )
+    cleanup_13dg.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Report candidate delete volumes without deleting.",
+    )
+    cleanup_13dg.add_argument(
+        "--vacuum",
+        action="store_true",
+        default=False,
+        help="Run low-memory VACUUM (ANALYZE) on affected tables after pruning.",
+    )
+
     seed = sub.add_parser("ingest-cik-list", help="Bootstrap by ingesting a CIK list file.")
     seed.add_argument("--file", required=True, help="Path to CIK list file (.txt or .csv).")
     seed.add_argument("--limit", type=int, default=20, help="Per-manager max matching forms to ingest.")
@@ -83,6 +161,22 @@ def _build_parser() -> argparse.ArgumentParser:
     discover.add_argument(
         "--out",
         default="seeds/ciks.discovered.txt",
+        help="Output file path for discovered CIKs.",
+    )
+
+    discover_13dg = sub.add_parser("discover-13dg-ciks", help="Discover 13D/G filer CIKs from SEC index data.")
+    discover_13dg.add_argument(
+        "--mode",
+        choices=["daily", "quarterly", "both"],
+        default="both",
+        help="SEC index source to scan.",
+    )
+    discover_13dg.add_argument("--days", type=int, default=30, help="Recent daily index days to scan.")
+    discover_13dg.add_argument("--quarters", type=int, default=6, help="Recent full-index quarters to scan.")
+    discover_13dg.add_argument("--max-ciks", type=int, default=1000, help="Maximum CIKs to write. Use 0 for all discovered CIKs.")
+    discover_13dg.add_argument(
+        "--out",
+        default="seeds/ciks.13dg.discovered.txt",
         help="Output file path for discovered CIKs.",
     )
 
@@ -485,6 +579,50 @@ def _discover_13f_ciks(quarters: int, max_ciks: int, out_path: str) -> None:
     )
 
 
+def _discover_13dg_ciks(
+    mode: str,
+    days: int,
+    quarters: int,
+    max_ciks: int,
+    out_path: str,
+) -> None:
+    from sqlalchemy.orm import Session
+
+    from app.clients.rate_limit import ProviderRateLimiter
+    from app.clients.sec_client import SecClient, build_sec_http_session
+    from app.pipeline.bo_discovery import Sec13DGIndexDiscoveryService
+
+    settings = get_settings()
+    engine = get_engine()
+    ensure_schema_and_seed(engine)
+
+    limiter = ProviderRateLimiter()
+    limiter.register(provider="SEC", rate_per_sec=float(settings.sec_burst_per_second))
+    session = build_sec_http_session()
+    out_file = Path(out_path)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with Session(bind=engine) as db:
+        client = SecClient(session=session, limiter=limiter, db=db)
+        summary = Sec13DGIndexDiscoveryService(sec_client=client).discover(
+            mode=mode,
+            days=days,
+            quarters=quarters,
+            max_ciks=max_ciks,
+        )
+    selected = summary.ciks or []
+    out_file.write_text("\n".join(selected) + ("\n" if selected else ""), encoding="utf-8")
+    print(
+        "discover_13dg_ciks "
+        f"mode={summary.mode} "
+        f"files_attempted={summary.files_attempted} "
+        f"files_scanned={summary.files_scanned} "
+        f"filings_matched={summary.filings_matched} "
+        f"selected={len(selected)} "
+        f"out={out_file}"
+    )
+
+
 def _prune_below_aum(top_n: int) -> None:
     from sqlalchemy.orm import Session
 
@@ -695,6 +833,104 @@ def _pipeline_run(
     _refresh_aggregates()
 
 
+def _cleanup_13dg(
+    keep_days: int,
+    dry_run: bool,
+    vacuum: bool,
+) -> None:
+    from sqlalchemy.orm import Session
+
+    from app.pipeline.bo_feed import cleanup_13dg_history
+
+    keep_days = max(1, int(keep_days))
+    cutoff_date = (datetime.now(UTC).date() - timedelta(days=keep_days)).isoformat()
+    engine = get_engine()
+    ensure_schema_and_seed(engine)
+
+    with Session(bind=engine) as db:
+        forms = [
+            "SC 13D",
+            "SC 13D/A",
+            "SC 13G",
+            "SC 13G/A",
+            "SCHEDULE 13D",
+            "SCHEDULE 13D/A",
+            "SCHEDULE 13G",
+            "SCHEDULE 13G/A",
+            "13D",
+            "13D/A",
+            "13G",
+            "13G/A",
+        ]
+        params = {"forms": [x.upper() for x in forms], "cutoff_date": cutoff_date}
+        old_event_count = int(
+            db.execute(
+                text(
+                    """
+                    SELECT COUNT(*)
+                    FROM beneficial_ownership_events
+                    WHERE filing_id IN (
+                      SELECT filing_id
+                      FROM filings
+                      WHERE UPPER(COALESCE(form_type, '')) IN :forms
+                        AND SUBSTR(COALESCE(filed_at, ''), 1, 10) < :cutoff_date
+                    )
+                    """
+                ).bindparams(bindparam("forms", expanding=True)),
+                params,
+            ).scalar()
+            or 0
+        )
+        old_filing_count = int(
+            db.execute(
+                text(
+                    """
+                    SELECT COUNT(*)
+                    FROM filings f
+                    WHERE UPPER(COALESCE(f.form_type, '')) IN :forms
+                      AND SUBSTR(COALESCE(f.filed_at, ''), 1, 10) < :cutoff_date
+                      AND NOT EXISTS (SELECT 1 FROM beneficial_ownership_events b WHERE b.filing_id = f.filing_id)
+                      AND NOT EXISTS (SELECT 1 FROM holdings_13f h WHERE h.filing_id = f.filing_id)
+                    """
+                ).bindparams(bindparam("forms", expanding=True)),
+                params,
+            ).scalar()
+            or 0
+        )
+
+        if dry_run:
+            print(
+                "cleanup_13dg_dry_run "
+                f"keep_days={keep_days} cutoff={cutoff_date} "
+                f"candidate_events={old_event_count} candidate_filings={old_filing_count}"
+            )
+            return
+
+        summary = cleanup_13dg_history(db=db, keep_days=keep_days, analyze=True)
+
+    if vacuum:
+        # Run lightweight vacuum to avoid shared-memory spikes.
+        if engine.dialect.name == "sqlite":
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(text("VACUUM"))
+                conn.execute(text("ANALYZE"))
+        else:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(text("SET statement_timeout = 0"))
+                conn.execute(text("SET max_parallel_maintenance_workers = 0"))
+                for table_name in ("beneficial_ownership_events", "filings"):
+                    conn.execute(text(f"VACUUM (ANALYZE, PARALLEL 0) {table_name}"))
+
+    print(
+        "cleanup_13dg_complete "
+        f"keep_days={summary.keep_days} cutoff={summary.cutoff_date} "
+        f"events_deleted={summary.events_deleted} filings_deleted={summary.filings_deleted} "
+        f"events_before={summary.events_before} events_after={summary.events_after} "
+        f"filings_before={summary.filings_before} filings_after={summary.filings_after} "
+        f"vacuum={int(bool(vacuum))}"
+    )
+
+
 def _update_incremental(
     top_n: int,
     ingest_limit: int,
@@ -858,6 +1094,72 @@ def _update_incremental(
                 "counts": final_counts,
             },
             log_file=log_file,
+        )
+
+
+def _update_13dg_feed(
+    top_n: int,
+    per_manager_limit: int,
+    resolve_limit: int,
+    refresh_universe_first: bool,
+    refresh_universe_if_empty: bool,
+    include_universe: bool,
+    index_discovery_mode: str,
+    discovery_days: int,
+    discovery_quarters: int,
+    discovery_max_ciks: int,
+    skip_unchanged_ciks: bool,
+    retention_days: int | None,
+    apply_retention: bool,
+) -> None:
+    from sqlalchemy.orm import Session
+
+    from app.clients.rate_limit import ProviderRateLimiter
+    from app.clients.sec_client import SecClient, build_sec_http_session
+    from app.pipeline.bo_feed import Daily13DGFeedUpdateService
+
+    settings = get_settings()
+    engine = get_engine()
+    ensure_schema_and_seed(engine)
+
+    limiter = ProviderRateLimiter()
+    limiter.register(provider="SEC", rate_per_sec=float(settings.sec_burst_per_second))
+    session = build_sec_http_session()
+
+    with Session(bind=engine) as db:
+        client = SecClient(session=session, limiter=limiter, db=db)
+        summary = Daily13DGFeedUpdateService(db=db, sec_client=client).run(
+            top_n=top_n,
+            per_manager_limit=per_manager_limit,
+            resolve_limit=(None if resolve_limit == 0 else resolve_limit),
+            refresh_universe_first=refresh_universe_first,
+            refresh_universe_if_empty=refresh_universe_if_empty,
+            include_universe=include_universe,
+            index_discovery_mode=index_discovery_mode,
+            discovery_days=discovery_days,
+            discovery_quarters=discovery_quarters,
+            discovery_max_ciks=discovery_max_ciks,
+            skip_unchanged_ciks=skip_unchanged_ciks,
+            retention_days=retention_days,
+            apply_retention=apply_retention,
+        )
+        print(
+            "update_13dg_feed "
+            f"managers_scanned={summary.managers_scanned} "
+            f"filings_upserted={summary.filings_upserted} "
+            f"events_inserted={summary.events_inserted} "
+            f"bo_events_mapped={summary.bo_events_mapped} "
+            f"universe_refreshed={summary.universe_refreshed} "
+            f"discovery_mode={summary.discovery_mode} "
+            f"discovered_ciks={summary.discovered_ciks} "
+            f"skipped_unchanged_ciks={summary.skipped_unchanged_ciks} "
+            f"discovery_files_scanned={summary.discovery_files_scanned}/{summary.discovery_files_attempted} "
+            f"discovery_filings_matched={summary.discovery_filings_matched} "
+            f"ingestion_failures={summary.ingestion_failures} "
+            f"retention_days={summary.retention_cleanup.get('keep_days', 0)} "
+            f"retention_cutoff={summary.retention_cleanup.get('cutoff_date', '')} "
+            f"retention_events_deleted={summary.retention_cleanup.get('events_deleted', 0)} "
+            f"retention_filings_deleted={summary.retention_cleanup.get('filings_deleted', 0)}"
         )
 
 
@@ -1318,6 +1620,28 @@ def main() -> None:
             alert_min_13f_pct=args.alert_min_13f_pct,
             alert_min_bo_pct=args.alert_min_bo_pct,
         )
+    elif args.command == "update-13dg-feed":
+        _update_13dg_feed(
+            top_n=args.top_n,
+            per_manager_limit=args.per_manager_limit,
+            resolve_limit=args.resolve_limit,
+            refresh_universe_first=args.refresh_universe_first,
+            refresh_universe_if_empty=not args.no_refresh_universe_if_empty,
+            include_universe=args.include_universe,
+            index_discovery_mode=args.index_discovery_mode,
+            discovery_days=args.discovery_days,
+            discovery_quarters=args.discovery_quarters,
+            discovery_max_ciks=args.discovery_max_ciks,
+            skip_unchanged_ciks=not args.no_skip_unchanged_ciks,
+            retention_days=(None if int(args.retention_days) <= 0 else int(args.retention_days)),
+            apply_retention=not bool(args.no_retention_cleanup),
+        )
+    elif args.command == "cleanup-13dg":
+        _cleanup_13dg(
+            keep_days=args.keep_days,
+            dry_run=args.dry_run,
+            vacuum=args.vacuum,
+        )
     elif args.command == "resume-post-ingest":
         _resume_post_ingest(
             batch_size=args.batch_size,
@@ -1335,6 +1659,14 @@ def main() -> None:
         _ingest_cik_list(file_path=args.file, limit=args.limit, include_13dg=args.include_13dg)
     elif args.command == "discover-13f-ciks":
         _discover_13f_ciks(quarters=args.quarters, max_ciks=args.max_ciks, out_path=args.out)
+    elif args.command == "discover-13dg-ciks":
+        _discover_13dg_ciks(
+            mode=args.mode,
+            days=args.days,
+            quarters=args.quarters,
+            max_ciks=args.max_ciks,
+            out_path=args.out,
+        )
     elif args.command == "seed-top-aum":
         _seed_top_aum(
             top_n=args.top_n,

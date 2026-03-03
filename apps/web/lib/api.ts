@@ -120,6 +120,8 @@ export type ManagerPageResponse = {
   };
 };
 
+export type InstitutionPageResponse = ManagerPageResponse;
+
 export type AccumulationResponse = {
   curr_q: string;
   prev_q: string;
@@ -175,6 +177,77 @@ export type ManagerUniverseResponse = {
   }>;
 };
 
+export type InstitutionUniverseResponse = ManagerUniverseResponse;
+
+export type HomeOverviewResponse = {
+  latest_quarter: string | null;
+  previous_quarter: string | null;
+  pulse: {
+    universe_count: number;
+    accum_count: number;
+    dist_count: number;
+    breadth_accum_pct: number;
+    breadth_dist_pct: number;
+    holders_added: number;
+    holders_trimmed: number;
+    participation_increase_pct: number;
+    net_value_change_usd: number;
+    form_13d_30d: number;
+    form_13g_30d: number;
+    bo_13d_share_30d: number;
+    bo_13g_share_30d: number;
+  };
+  pulse_series: {
+    breadth_accum_pct: Array<{ report_date: string; value: number }>;
+    participation_increase_pct: Array<{ report_date: string; value: number }>;
+    net_value_change_usd: Array<{ report_date: string; value: number }>;
+    bo_13d_share_pct: Array<{ report_date: string; value: number }>;
+  };
+  top_movers: {
+    accumulated: Array<{
+      security_id: number;
+      ticker: string | null;
+      security_name: string | null;
+      net_shares: number;
+      net_holder_count: number;
+      holders_count: number;
+      top10_pct: number;
+      total_value_usd: number;
+      series: Array<{ report_date: string; net_shares: number; net_holder_count: number }>;
+    }>;
+    distributed: Array<{
+      security_id: number;
+      ticker: string | null;
+      security_name: string | null;
+      net_shares: number;
+      net_holder_count: number;
+      holders_count: number;
+      top10_pct: number;
+      total_value_usd: number;
+      series: Array<{ report_date: string; net_shares: number; net_holder_count: number }>;
+    }>;
+    new_holders: Array<{
+      security_id: number;
+      ticker: string | null;
+      security_name: string | null;
+      net_shares: number;
+      net_holder_count: number;
+      holders_count: number;
+      top10_pct: number;
+      total_value_usd: number;
+      series: Array<{ report_date: string; net_shares: number; net_holder_count: number }>;
+    }>;
+  };
+  breadth_concentration: Array<{
+    security_id: number;
+    ticker: string | null;
+    security_name: string | null;
+    holders_count: number;
+    top10_pct: number;
+    total_value_usd: number;
+  }>;
+};
+
 export type ApiUsageResponse = {
   summary: Array<{
     provider: string;
@@ -221,6 +294,49 @@ export type SecuritySearchResponse = {
   }>;
 };
 
+export type Feed13DGResponse = {
+  start_date: string;
+  end_date: string;
+  filters: {
+    event_type: string | null;
+    form_type: string | null;
+    include_other: number;
+    mapped_only: number;
+    include_low_quality: number;
+    ticker: string | null;
+    manager_key: string | null;
+    q: string | null;
+  };
+  counts: {
+    rows: number;
+    by_event_type: Record<string, number>;
+  };
+  rows: Array<{
+    bo_event_id: number;
+    report_date: string;
+    event_type: string;
+    percent_beneficial_owned: number | null;
+    shares_beneficial_owned: number | null;
+    mapping_status: string;
+    mapping_confidence: number | null;
+    cusip_raw: string | null;
+    ticker_raw: string | null;
+    manager_id: number | null;
+    manager_name: string | null;
+    security_id: number | null;
+    security_name: string | null;
+    issuer_name_raw: string | null;
+    ticker: string | null;
+    security_display: string | null;
+    is_low_quality_security: number;
+    filing_id: number;
+    accession_no: string;
+    form_type: string;
+    filed_at: string | null;
+    sec_url: string | null;
+  }>;
+};
+
 export function getSecurity(ticker: string) {
   return requestJson<SecurityPageResponse>(`/security/${encodeURIComponent(ticker.toUpperCase())}`);
 }
@@ -244,8 +360,12 @@ export function getSecurityEventsFiltered(
   );
 }
 
+export function getInstitution(institutionKey: string) {
+  return requestJson<InstitutionPageResponse>(`/institution/${encodeURIComponent(institutionKey)}`);
+}
+
 export function getManager(managerKey: string) {
-  return requestJson<ManagerPageResponse>(`/manager/${encodeURIComponent(managerKey)}`);
+  return getInstitution(managerKey);
 }
 
 export function getAccumulation(currQ: string, prevQ: string, limitN = 100) {
@@ -264,8 +384,31 @@ export function getNew5Pct(startDate: string, endDate: string, limitN = 100) {
   );
 }
 
+export function getHomeOverview(
+  options?: {
+    quartersN?: number;
+    topN?: number;
+    scatterN?: number;
+    strongSharesThreshold?: number;
+    strongHoldersThreshold?: number;
+  }
+) {
+  const params = new URLSearchParams();
+  if (options?.quartersN !== undefined) params.set("quarters_n", String(options.quartersN));
+  if (options?.topN !== undefined) params.set("top_n", String(options.topN));
+  if (options?.scatterN !== undefined) params.set("scatter_n", String(options.scatterN));
+  if (options?.strongSharesThreshold !== undefined) params.set("strong_shares_threshold", String(options.strongSharesThreshold));
+  if (options?.strongHoldersThreshold !== undefined) params.set("strong_holders_threshold", String(options.strongHoldersThreshold));
+  const qs = params.toString();
+  return requestJson<HomeOverviewResponse>(`/home/overview${qs ? `?${qs}` : ""}`);
+}
+
+export function getInstitutionUniverse(limitN = 300) {
+  return requestJson<InstitutionUniverseResponse>(`/ops/institution-universe?limit_n=${limitN}`);
+}
+
 export function getManagerUniverse(limitN = 300) {
-  return requestJson<ManagerUniverseResponse>(`/ops/manager-universe?limit_n=${limitN}`);
+  return getInstitutionUniverse(limitN);
 }
 
 export function getApiUsage(days = 7, limitN = 100) {
@@ -280,4 +423,37 @@ export function searchSecurities(query: string, limitN = 20) {
   return requestJson<SecuritySearchResponse>(
     `/security/search?q=${encodeURIComponent(query)}&limit_n=${limitN}`
   );
+}
+
+export function get13DGFeed(
+  options?: {
+    limitN?: number;
+    days?: number;
+    startDate?: string;
+    endDate?: string;
+    eventType?: "NEW_5PCT" | "EXIT_5PCT" | "AMENDMENT_UP" | "AMENDMENT_DOWN" | "OTHER";
+    formType?: string;
+    includeOther?: boolean;
+    mappedOnly?: boolean;
+    includeLowQuality?: boolean;
+    ticker?: string;
+    managerKey?: string;
+    q?: string;
+  }
+) {
+  const params = new URLSearchParams();
+  if (options?.limitN !== undefined) params.set("limit_n", String(options.limitN));
+  if (options?.days !== undefined) params.set("days", String(options.days));
+  if (options?.startDate) params.set("start_date", options.startDate);
+  if (options?.endDate) params.set("end_date", options.endDate);
+  if (options?.eventType) params.set("event_type", options.eventType);
+  if (options?.formType) params.set("form_type", options.formType);
+  if (options?.includeOther !== undefined) params.set("include_other", options.includeOther ? "1" : "0");
+  if (options?.mappedOnly !== undefined) params.set("mapped_only", options.mappedOnly ? "1" : "0");
+  if (options?.includeLowQuality !== undefined) params.set("include_low_quality", options.includeLowQuality ? "1" : "0");
+  if (options?.ticker) params.set("ticker", options.ticker.toUpperCase());
+  if (options?.managerKey) params.set("manager_key", options.managerKey);
+  if (options?.q) params.set("q", options.q);
+  const qs = params.toString();
+  return requestJson<Feed13DGResponse>(`/feeds/13dg${qs ? `?${qs}` : ""}`);
 }

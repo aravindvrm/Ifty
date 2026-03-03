@@ -137,6 +137,8 @@ CREATE INDEX IF NOT EXISTS ix_filings_form_period
 ON filings (form_type, period_end_date, filed_at);
 CREATE INDEX IF NOT EXISTS ix_filings_manager_period
 ON filings (manager_id, period_end_date);
+CREATE INDEX IF NOT EXISTS ix_filings_form_filed_at
+ON filings (form_type, filed_at);
 
 CREATE TABLE IF NOT EXISTS holdings_13f (
   holding_13f_id BIGINT PRIMARY KEY,
@@ -194,6 +196,8 @@ CREATE INDEX IF NOT EXISTS ix_bo_security_date
 ON beneficial_ownership_events (security_id, report_date);
 CREATE INDEX IF NOT EXISTS ix_bo_manager_date
 ON beneficial_ownership_events (manager_id, report_date);
+CREATE INDEX IF NOT EXISTS ix_bo_filing_id
+ON beneficial_ownership_events (filing_id);
 
 CREATE TABLE IF NOT EXISTS api_budgets (
   provider TEXT PRIMARY KEY,

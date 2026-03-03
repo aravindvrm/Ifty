@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime, timedelta
 import json
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import bindparam, text
@@ -11,6 +12,7 @@ from app.dependencies import get_db, get_sec_client
 from app.ingest.sec_13f import Sec13FIngestionService
 from app.ingest.sec_13dg import Sec13DGIngestionService
 from app.pipeline.universe import ManagerUniverseService
+from app.pipeline.bo_feed import Daily13DGFeedUpdateService
 from app.resolution.security_resolver import SecurityResolverService
 from app.resolution.ticker_enrichment import TickerEnrichmentService
 from app.enrichment.cusip_to_ticker import CusipToTickerEnrichmentService, NoopCusipProvider, OpenFigiCusipProvider
@@ -18,6 +20,59 @@ from app.clients.rate_limit import ProviderRateLimiter
 from app.config import get_settings
 
 router = APIRouter()
+
+_FEED_TICKER_RE = re.compile(r"^[A-Z]{1,6}(?:[./-][A-Z0-9]{1,4})?$")
+_FEED_ITEM_TOKEN_RE = re.compile(r"^ITEM\d+TO\d+$")
+
+
+def _clean_feed_label(raw: object) -> str | None:
+    value = re.sub(r"\s+", " ", str(raw or "")).strip()
+    value = value.strip("-")
+    if not value:
+        return None
+    upper = value.upper()
+    if upper in {"N/A", "NA", "NULL", "NONE"}:
+        return None
+    return value
+
+
+def _is_bad_feed_security_text(value: str | None) -> bool:
+    if not value:
+        return True
+    upper = value.upper()
+    collapsed = upper.replace(" ", "")
+    if _FEED_ITEM_TOKEN_RE.match(collapsed):
+        return True
+    if upper.startswith("ITEM"):
+        return True
+    if upper.startswith("CUSIP"):
+        return True
+    if upper.startswith("UNKNOWN "):
+        return True
+    if upper.startswith(")") or upper.startswith("("):
+        return True
+    if " VARIABLE " in upper or " REMARKET" in upper:
+        return True
+    return False
+
+def _derive_feed_security_display(row: dict[str, object]) -> str | None:
+    ticker = _clean_feed_label(row.get("ticker"))
+    if ticker and _FEED_TICKER_RE.fullmatch(ticker.upper()):
+        return ticker.upper()
+
+    ticker_raw = _clean_feed_label(row.get("ticker_raw"))
+    if ticker_raw and _FEED_TICKER_RE.fullmatch(ticker_raw.upper()) and not _is_bad_feed_security_text(ticker_raw):
+        return ticker_raw.upper()
+
+    security_name = _clean_feed_label(row.get("security_name"))
+    if security_name and not _is_bad_feed_security_text(security_name):
+        return security_name
+
+    issuer_name = _clean_feed_label(row.get("issuer_name_raw"))
+    if issuer_name and not _is_bad_feed_security_text(issuer_name):
+        return issuer_name
+
+    return None
 
 
 def _split_factor_between(db: Session, security_id: int, prev_date: str, curr_date: str) -> float:
@@ -179,15 +234,17 @@ def _resolve_security_scope_ids(db: Session, ticker: str) -> list[int]:
         for x in db.execute(
             text(
                 """
-                SELECT DISTINCT report_date
-                FROM holdings_13f
-                WHERE mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
-                  AND option_type IS NULL
-                ORDER BY report_date DESC
+                SELECT period_end_date
+                FROM filings
+                WHERE form_type IN ('13F-HR', '13F-HR/A')
+                  AND period_end_date IS NOT NULL
+                GROUP BY period_end_date
+                ORDER BY period_end_date DESC
                 LIMIT 8
                 """
             )
         ).all()
+        if x and x[0] is not None
     ]
     if recent_dates:
         by_holding_rows = db.execute(
@@ -485,6 +542,60 @@ def enrich_cusips(
     }
 
 
+@router.post("/jobs/update-13dg-feed")
+def update_13dg_feed(
+    top_n: int = Query(300, ge=1, le=5000),
+    per_manager_limit: int = Query(20, ge=1, le=200),
+    resolve_limit: int = Query(6, ge=0, le=64, description="Distinct recent report_date batches to resolve; 0 means all."),
+    refresh_universe_first: int = Query(0, ge=0, le=1),
+    refresh_universe_if_empty: int = Query(1, ge=0, le=1),
+    include_universe: int = Query(0, ge=0, le=1),
+    index_discovery_mode: str = Query("daily", pattern="^(none|daily|quarterly|both)$"),
+    discovery_days: int = Query(21, ge=1, le=366),
+    discovery_quarters: int = Query(6, ge=1, le=20),
+    discovery_max_ciks: int = Query(300, ge=0, le=5000),
+    skip_unchanged_ciks: int = Query(1, ge=0, le=1),
+    retention_days: int = Query(120, ge=0, le=3650),
+    apply_retention: int = Query(1, ge=0, le=1),
+    db: Session = Depends(get_db),
+    sec_client: SecClient = Depends(get_sec_client),
+) -> dict:
+    service = Daily13DGFeedUpdateService(db=db, sec_client=sec_client)
+    summary = service.run(
+        top_n=top_n,
+        per_manager_limit=per_manager_limit,
+        resolve_limit=None if resolve_limit == 0 else resolve_limit,
+        refresh_universe_first=bool(refresh_universe_first),
+        refresh_universe_if_empty=bool(refresh_universe_if_empty),
+        include_universe=bool(include_universe),
+        index_discovery_mode=index_discovery_mode,
+        discovery_days=discovery_days,
+        discovery_quarters=discovery_quarters,
+        discovery_max_ciks=discovery_max_ciks,
+        skip_unchanged_ciks=bool(skip_unchanged_ciks),
+        retention_days=(None if retention_days <= 0 else retention_days),
+        apply_retention=bool(apply_retention),
+    )
+    return {
+        "managers_scanned": summary.managers_scanned,
+        "filings_upserted": summary.filings_upserted,
+        "events_inserted": summary.events_inserted,
+        "bo_events_mapped": summary.bo_events_mapped,
+        "bo_batches": summary.bo_batches,
+        "universe_refreshed": summary.universe_refreshed,
+        "discovered_ciks": summary.discovered_ciks,
+        "skipped_unchanged_ciks": summary.skipped_unchanged_ciks,
+        "discovery_mode": summary.discovery_mode,
+        "discovery_files_attempted": summary.discovery_files_attempted,
+        "discovery_files_scanned": summary.discovery_files_scanned,
+        "discovery_filings_matched": summary.discovery_filings_matched,
+        "ingestion_failures": summary.ingestion_failures,
+        "retention_cleanup": summary.retention_cleanup,
+        "label_cleanup": summary.label_cleanup,
+    }
+
+
+@router.get("/ops/institution-universe")
 @router.get("/ops/manager-universe")
 def manager_universe(
     limit_n: int = Query(300, ge=1, le=5000),
@@ -768,6 +879,24 @@ def security_page(
     ).mappings().all()
     latest_positions = [dict(x) for x in latest_positions_rows]
     latest_by_manager = {int(x["manager_id"]): x for x in latest_positions}
+    manager_total_value_by_id: dict[int, float] = {}
+    latest_manager_ids = [int(x["manager_id"]) for x in latest_positions]
+    if latest_manager_ids:
+        manager_total_rows = db.execute(
+            text(
+                """
+                SELECT manager_id, total_value_usd
+                FROM agg_manager_quarter
+                WHERE report_date = :report_date
+                  AND manager_id IN :manager_ids
+                """
+            ).bindparams(bindparam("manager_ids", expanding=True)),
+            {"report_date": latest_date, "manager_ids": latest_manager_ids},
+        ).mappings().all()
+        manager_total_value_by_id = {
+            int(x["manager_id"]): float(x["total_value_usd"] or 0.0)
+            for x in manager_total_rows
+        }
     prev_by_manager: dict[int, float] = {}
     if prev_date:
         prev_rows = db.execute(
@@ -801,6 +930,12 @@ def security_page(
         total_shares += curr_shares
         raw_value = float(row["value_usd_thousands"] or 0.0)
         value_usd = raw_value * value_to_usd_multiplier
+        manager_total_value_usd = float(manager_total_value_by_id.get(manager_id, 0.0))
+        pct_manager_portfolio = (
+            ((raw_value * 1000.0) / manager_total_value_usd)
+            if manager_total_value_usd > 0
+            else None
+        )
         value_usd_thousands = _raw_value_to_usd_thousands(
             raw_value=raw_value,
             value_to_usd_multiplier=value_to_usd_multiplier,
@@ -813,8 +948,7 @@ def security_page(
                 "shares": curr_shares,
                 "value_usd_thousands": value_usd_thousands,
                 "qoq_delta_shares": qoq_delta,
-                # Avoid expensive manager-universe totals query in hot path.
-                "pct_manager_portfolio": None,
+                "pct_manager_portfolio": pct_manager_portfolio,
                 "is_new": prev_shares <= 0 and curr_shares > 0,
             }
         )
@@ -1012,11 +1146,11 @@ def security_events_feed(
         "new_5pct_only": new_5pct_only,
     }
     if start_date is not None:
-        where_clauses.append("CAST(b.report_date AS DATE) >= :start_date")
-        params["start_date"] = start_date
+        where_clauses.append("NULLIF(TRIM(b.report_date), '') >= :start_date")
+        params["start_date"] = start_date.isoformat()
     if end_date is not None:
-        where_clauses.append("CAST(b.report_date AS DATE) <= :end_date")
-        params["end_date"] = end_date
+        where_clauses.append("NULLIF(TRIM(b.report_date), '') <= :end_date")
+        params["end_date"] = end_date.isoformat()
 
     rows = db.execute(
         text(
@@ -1048,6 +1182,195 @@ def security_events_feed(
     }
 
 
+@router.get("/feeds/13dg")
+def feed_13dg(
+    limit_n: int = Query(300, ge=1, le=2000),
+    days: int = Query(30, ge=1, le=3650),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+    event_type: str | None = Query(None, description="Optional filter: NEW_5PCT, EXIT_5PCT, AMENDMENT_UP, AMENDMENT_DOWN, OTHER."),
+    form_type: str | None = Query(None, description="Optional form-type filter, e.g. SC 13D, SC 13G, SC 13D/A."),
+    include_other: int = Query(0, ge=0, le=1),
+    mapped_only: int = Query(0, ge=0, le=1),
+    include_low_quality: int = Query(0, ge=0, le=1, description="Include rows with low-confidence/invalid security labels."),
+    ticker: str | None = Query(None, description="Optional ticker filter."),
+    manager_key: str | None = Query(None, description="Optional manager_id or cik filter."),
+    q: str | None = Query(None, description="Optional free-text search across ticker/security/cusip/institution/form/event."),
+    db: Session = Depends(get_db),
+) -> dict:
+    effective_end = end_date or datetime.now(UTC).date()
+    effective_start = start_date or (effective_end - timedelta(days=days))
+    if effective_start > effective_end:
+        raise HTTPException(status_code=400, detail="start_date must be <= end_date.")
+
+    where_clauses = [
+        "b.report_date >= :start_date",
+        "b.report_date <= :end_date",
+    ]
+    params: dict[str, object] = {
+        "start_date": effective_start.isoformat(),
+        "end_date": effective_end.isoformat(),
+        "limit_n": limit_n,
+    }
+
+    if not include_other:
+        where_clauses.append("b.event_type <> 'OTHER'")
+    if mapped_only:
+        where_clauses.append("b.security_id IS NOT NULL")
+
+    if event_type:
+        normalized = event_type.strip().upper()
+        allowed = {"NEW_5PCT", "EXIT_5PCT", "AMENDMENT_UP", "AMENDMENT_DOWN", "OTHER"}
+        if normalized not in allowed:
+            raise HTTPException(status_code=400, detail=f"Unsupported event_type '{event_type}'.")
+        where_clauses.append("b.event_type = :event_type")
+        params["event_type"] = normalized
+
+    normalized_form_type: str | None = None
+    if form_type:
+        normalized_form_type = form_type.strip().upper()
+        where_clauses.append("UPPER(COALESCE(f.form_type, '')) = :form_type")
+        params["form_type"] = normalized_form_type
+
+    if manager_key:
+        if manager_key.isdigit():
+            manager_row = db.execute(
+                text("SELECT manager_id FROM managers WHERE manager_id = :key"),
+                {"key": int(manager_key)},
+            ).mappings().first()
+        else:
+            manager_row = db.execute(
+                text("SELECT manager_id FROM managers WHERE cik = :key"),
+                {"key": manager_key},
+            ).mappings().first()
+        if not manager_row:
+            raise HTTPException(status_code=404, detail=f"Manager '{manager_key}' not found.")
+        where_clauses.append("b.manager_id = :manager_id")
+        params["manager_id"] = int(manager_row["manager_id"])
+
+    scope_ids: list[int] | None = None
+    if ticker:
+        sec_row = _lookup_active_security_by_ticker(db=db, ticker=ticker)
+        if not sec_row:
+            raise HTTPException(status_code=404, detail=f"No active security mapping found for ticker '{ticker}'.")
+        scope_ids = _resolve_security_scope_ids(db=db, ticker=ticker) or [int(sec_row["security_id"])]
+        where_clauses.append("b.security_id IN :scope_ids")
+        params["scope_ids"] = scope_ids
+
+    normalized_query: str | None = None
+    if q and q.strip():
+        normalized_query = q.strip().lower()
+        query_terms = [token for token in re.split(r"\s+", normalized_query) if token][:6]
+        for i, token in enumerate(query_terms):
+            param_key = f"q_{i}"
+            params[param_key] = f"%{token}%"
+            where_clauses.append(
+                f"""
+                (
+                  LOWER(COALESCE(s.security_name, '')) LIKE :{param_key}
+                  OR LOWER(COALESCE(b.issuer_name_raw, '')) LIKE :{param_key}
+                  OR LOWER(COALESCE(b.cusip_raw, '')) LIKE :{param_key}
+                  OR LOWER(COALESCE(m.manager_name, '')) LIKE :{param_key}
+                  OR LOWER(COALESCE(f.form_type, '')) LIKE :{param_key}
+                  OR LOWER(COALESCE(b.event_type, '')) LIKE :{param_key}
+                  OR EXISTS (
+                    SELECT 1
+                    FROM security_identifiers siq
+                    WHERE siq.security_id = b.security_id
+                      AND siq.id_type = 'TICKER'
+                      AND (siq.valid_to IS NULL OR date('now') < date(siq.valid_to))
+                      AND LOWER(siq.id_value) LIKE :{param_key}
+                  )
+                )
+                """
+            )
+
+    stmt = text(
+        f"""
+        SELECT
+          b.bo_event_id,
+          b.report_date,
+          b.event_type,
+          b.percent_beneficial_owned,
+          b.shares_beneficial_owned,
+          b.mapping_status,
+          b.mapping_confidence,
+          b.cusip_raw,
+          b.ticker_raw,
+          b.manager_id,
+          m.manager_name,
+          b.security_id,
+          s.security_name,
+          b.issuer_name_raw,
+          (
+            SELECT si.id_value
+            FROM security_identifiers si
+            WHERE si.security_id = b.security_id
+              AND si.id_type = 'TICKER'
+              AND (si.valid_to IS NULL OR date('now') < date(si.valid_to))
+            ORDER BY si.valid_from DESC
+            LIMIT 1
+          ) AS ticker,
+          f.filing_id,
+          f.accession_no,
+          f.form_type,
+          f.filed_at,
+          f.sec_url
+        FROM beneficial_ownership_events b
+        LEFT JOIN managers m ON m.manager_id = b.manager_id
+        LEFT JOIN securities s ON s.security_id = b.security_id
+        JOIN filings f ON f.filing_id = b.filing_id
+        WHERE {' AND '.join(where_clauses)}
+          AND (
+            b.security_id IS NULL
+            OR UPPER(COALESCE(s.instrument_type, '')) NOT IN ('OPTION', 'WARRANT', 'RIGHT')
+          )
+        ORDER BY b.report_date DESC, b.bo_event_id DESC
+        LIMIT :limit_n
+        """
+    )
+    if scope_ids is not None:
+        stmt = stmt.bindparams(bindparam("scope_ids", expanding=True))
+    raw_rows = db.execute(stmt, params).mappings().all()
+
+    rows: list[dict[str, object]] = []
+    for raw in raw_rows:
+        row = dict(raw)
+        security_display = _derive_feed_security_display(row)
+        is_low_quality_security = int(security_display is None)
+        if not include_low_quality and is_low_quality_security:
+            continue
+        row["security_display"] = security_display
+        row["is_low_quality_security"] = is_low_quality_security
+        rows.append(row)
+
+    event_counts: dict[str, int] = {}
+    for row in rows:
+        key = str(row["event_type"] or "UNKNOWN")
+        event_counts[key] = int(event_counts.get(key, 0) + 1)
+
+    return {
+        "start_date": effective_start.isoformat(),
+        "end_date": effective_end.isoformat(),
+        "filters": {
+            "event_type": event_type.strip().upper() if event_type else None,
+            "form_type": normalized_form_type,
+            "include_other": int(include_other),
+            "mapped_only": int(mapped_only),
+            "include_low_quality": int(include_low_quality),
+            "ticker": ticker.upper() if ticker else None,
+            "manager_key": manager_key,
+            "q": normalized_query,
+        },
+        "counts": {
+            "rows": len(rows),
+            "by_event_type": event_counts,
+        },
+        "rows": rows,
+    }
+
+
+@router.get("/institution/{manager_key}")
 @router.get("/manager/{manager_key}")
 def manager_page(
     manager_key: str,
@@ -1065,7 +1388,7 @@ def manager_page(
         ).mappings().first()
 
     if not row:
-        raise HTTPException(status_code=404, detail=f"Manager '{manager_key}' not found.")
+        raise HTTPException(status_code=404, detail=f"Institution '{manager_key}' not found.")
 
     manager_id = int(row["manager_id"])
     value_to_usd_multiplier = _value_to_usd_multiplier(db=db)
@@ -1513,6 +1836,381 @@ def manager_page(
         "top_buys": top_buys,
         "top_sells": top_sells,
         "metrics": metrics,
+    }
+
+
+@router.get("/home/overview")
+def home_overview(
+    quarters_n: int = Query(8, ge=4, le=12),
+    top_n: int = Query(10, ge=5, le=25),
+    scatter_n: int = Query(120, ge=0, le=400),
+    strong_shares_threshold: float = Query(1_000_000.0, ge=0),
+    strong_holders_threshold: int = Query(5, ge=0, le=1000),
+    db: Session = Depends(get_db),
+) -> dict:
+    quarter_rows = db.execute(
+        text(
+            """
+            SELECT DISTINCT report_date
+            FROM agg_security_quarter
+            ORDER BY report_date DESC
+            LIMIT :quarters_n
+            """
+        ),
+        {"quarters_n": quarters_n},
+    ).all()
+    quarters_desc = [str(x[0]) for x in quarter_rows if x and x[0] is not None]
+    if len(quarters_desc) < 2:
+        return {
+            "latest_quarter": quarters_desc[0] if quarters_desc else None,
+            "previous_quarter": None,
+            "pulse": {
+                "universe_count": 0,
+                "accum_count": 0,
+                "dist_count": 0,
+                "breadth_accum_pct": 0.0,
+                "breadth_dist_pct": 0.0,
+                "holders_added": 0,
+                "holders_trimmed": 0,
+                "participation_increase_pct": 0.0,
+                "net_value_change_usd": 0.0,
+                "form_13d_30d": 0,
+                "form_13g_30d": 0,
+                "bo_13d_share_30d": 0.0,
+                "bo_13g_share_30d": 0.0,
+            },
+            "pulse_series": {
+                "breadth_accum_pct": [],
+                "participation_increase_pct": [],
+                "net_value_change_usd": [],
+                "bo_13d_share_pct": [],
+            },
+            "top_movers": {"accumulated": [], "distributed": [], "new_holders": []},
+            "breadth_concentration": [],
+        }
+
+    quarters = list(reversed(quarters_desc))
+    latest_quarter = quarters[-1]
+    previous_quarter = quarters[-2]
+    value_scale = _value_to_usd_multiplier(db=db) / 1000.0
+
+    def _flow_stats(curr_quarter: str, prev_quarter: str) -> dict[str, object]:
+        row = db.execute(
+            text(
+                """
+                WITH flow AS (
+                  SELECT
+                    (COALESCE(c.total_shares, 0) - COALESCE(p.total_shares, 0)) AS delta_shares,
+                    (COALESCE(c.holders_count, 0) - COALESCE(p.holders_count, 0)) AS delta_holders,
+                    (COALESCE(c.total_value_usd, 0) - COALESCE(p.total_value_usd, 0)) AS delta_value_usd
+                  FROM agg_security_quarter c
+                  JOIN securities s ON s.security_id = c.security_id
+                  LEFT JOIN agg_security_quarter p
+                    ON p.security_id = c.security_id
+                   AND p.report_date = :prev_quarter
+                  WHERE c.report_date = :curr_quarter
+                    AND UPPER(COALESCE(s.instrument_type, '')) NOT IN ('OPTION', 'WARRANT', 'RIGHT')
+                )
+                SELECT
+                  COUNT(*) AS universe_count,
+                  COALESCE(SUM(CASE WHEN delta_shares > 0 THEN 1 ELSE 0 END), 0) AS accum_count,
+                  COALESCE(SUM(CASE WHEN delta_shares < 0 THEN 1 ELSE 0 END), 0) AS dist_count,
+                  COALESCE(SUM(CASE WHEN delta_holders > 0 THEN delta_holders ELSE 0 END), 0) AS holders_added,
+                  COALESCE(SUM(CASE WHEN delta_holders < 0 THEN -delta_holders ELSE 0 END), 0) AS holders_trimmed,
+                  COALESCE(SUM(delta_value_usd), 0) AS net_value_change_usd
+                FROM flow
+                """
+            ),
+            {"curr_quarter": curr_quarter, "prev_quarter": prev_quarter},
+        ).mappings().first() or {}
+        universe_count = int(row.get("universe_count", 0) or 0)
+        accum_count = int(row.get("accum_count", 0) or 0)
+        dist_count = int(row.get("dist_count", 0) or 0)
+        holders_added = int(row.get("holders_added", 0) or 0)
+        holders_trimmed = int(row.get("holders_trimmed", 0) or 0)
+        return {
+            "universe_count": universe_count,
+            "accum_count": accum_count,
+            "dist_count": dist_count,
+            "breadth_accum_pct": (accum_count / universe_count) if universe_count > 0 else 0.0,
+            "breadth_dist_pct": (dist_count / universe_count) if universe_count > 0 else 0.0,
+            "holders_added": holders_added,
+            "holders_trimmed": holders_trimmed,
+            "participation_increase_pct": (
+                holders_added / (holders_added + holders_trimmed)
+                if (holders_added + holders_trimmed) > 0
+                else 0.0
+            ),
+            "net_value_change_usd": float(row.get("net_value_change_usd", 0.0) or 0.0) * value_scale,
+        }
+
+    pulse_stats_latest = _flow_stats(curr_quarter=latest_quarter, prev_quarter=previous_quarter)
+
+    def _bo_mix_between(start_exclusive: str, end_inclusive: str) -> tuple[int, int]:
+        row = db.execute(
+            text(
+                """
+                SELECT
+                  COUNT(DISTINCT CASE WHEN UPPER(COALESCE(f.form_type, '')) LIKE 'SC 13D%' THEN b.filing_id END) AS form_13d,
+                  COUNT(DISTINCT CASE WHEN UPPER(COALESCE(f.form_type, '')) LIKE 'SC 13G%' THEN b.filing_id END) AS form_13g
+                FROM beneficial_ownership_events b
+                JOIN filings f ON f.filing_id = b.filing_id
+                WHERE b.report_date > :start_exclusive
+                  AND b.report_date <= :end_inclusive
+                """
+            ),
+            {"start_exclusive": start_exclusive, "end_inclusive": end_inclusive},
+        ).mappings().first() or {}
+        return int(row.get("form_13d", 0) or 0), int(row.get("form_13g", 0) or 0)
+
+    today = datetime.now(UTC).date()
+    d30 = (today - timedelta(days=30)).isoformat()
+    today_iso = today.isoformat()
+    form_13d_30d, form_13g_30d = _bo_mix_between(start_exclusive=d30, end_inclusive=today_iso)
+    pulse_series_breadth: list[dict[str, object]] = []
+    pulse_series_participation: list[dict[str, object]] = []
+    pulse_series_value: list[dict[str, object]] = []
+    pulse_series_13d_share: list[dict[str, object]] = []
+    for i, quarter in enumerate(quarters):
+        prev_quarter = quarters[i - 1] if i > 0 else None
+        if prev_quarter is None:
+            pulse_series_breadth.append({"report_date": quarter, "value": 0.0})
+            pulse_series_participation.append({"report_date": quarter, "value": 0.0})
+            pulse_series_value.append({"report_date": quarter, "value": 0.0})
+            pulse_series_13d_share.append({"report_date": quarter, "value": 0.0})
+        else:
+            q_stats = _flow_stats(curr_quarter=quarter, prev_quarter=prev_quarter)
+            pulse_series_breadth.append({"report_date": quarter, "value": float(q_stats["breadth_accum_pct"])})
+            pulse_series_participation.append(
+                {"report_date": quarter, "value": float(q_stats["participation_increase_pct"])}
+            )
+            pulse_series_value.append({"report_date": quarter, "value": float(q_stats["net_value_change_usd"])})
+            q_13d, q_13g = _bo_mix_between(start_exclusive=prev_quarter, end_inclusive=quarter)
+            q_total = q_13d + q_13g
+            pulse_series_13d_share.append(
+                {"report_date": quarter, "value": (q_13d / q_total) if q_total > 0 else 0.0}
+            )
+
+    ticker_pattern = re.compile(r"^[A-Z]{1,6}(?:\.[A-Z]{1,2})?$")
+    disallowed_instruments = {"OPTION", "WARRANT", "RIGHT", "BOND", "NOTE", "DEBT", "PREFERRED", "PFD"}
+
+    def _is_eligible_home_security(row: dict[str, object]) -> bool:
+        ticker = str(row.get("ticker") or "").strip().upper()
+        if not ticker_pattern.fullmatch(ticker):
+            return False
+        inst = str(row.get("instrument_type") or "").strip().upper()
+        if inst in disallowed_instruments:
+            return False
+        return True
+
+    fetch_limit = max(1000, top_n * 100)
+
+    def _fetch_ranked_movers(*, where_clause: str, order_clause: str) -> list[dict[str, object]]:
+        rows = db.execute(
+            text(
+                f"""
+                SELECT
+                  c.security_id,
+                  COALESCE(c.holders_count, 0) AS curr_holders_count,
+                  COALESCE(p.holders_count, 0) AS prev_holders_count,
+                  COALESCE(c.total_shares, 0) AS curr_total_shares,
+                  COALESCE(p.total_shares, 0) AS prev_total_shares,
+                  COALESCE(c.total_value_usd, 0) AS total_value_usd,
+                  COALESCE(c.top10_pct, 0) AS top10_pct,
+                  COALESCE(s.instrument_type, '') AS instrument_type,
+                  s.security_name,
+                  (
+                    SELECT si.id_value
+                    FROM security_identifiers si
+                    WHERE si.security_id = c.security_id
+                      AND si.id_type = 'TICKER'
+                      AND (si.valid_to IS NULL OR date('now') < date(si.valid_to))
+                    ORDER BY si.valid_from DESC
+                    LIMIT 1
+                  ) AS ticker
+                FROM agg_security_quarter c
+                LEFT JOIN agg_security_quarter p
+                  ON p.security_id = c.security_id
+                 AND p.report_date = :previous_quarter
+                LEFT JOIN securities s ON s.security_id = c.security_id
+                WHERE c.report_date = :latest_quarter
+                  AND (s.security_id IS NULL OR UPPER(COALESCE(s.instrument_type, '')) NOT IN ('OPTION', 'WARRANT', 'RIGHT'))
+                  AND {where_clause}
+                ORDER BY {order_clause}
+                LIMIT :fetch_limit
+                """
+            ),
+            {"latest_quarter": latest_quarter, "previous_quarter": previous_quarter, "fetch_limit": fetch_limit},
+        ).mappings().all()
+
+        out: list[dict[str, object]] = []
+        for row in rows:
+            net_shares = float(row["curr_total_shares"] or 0.0) - float(row["prev_total_shares"] or 0.0)
+            net_holder_count = int(row["curr_holders_count"] or 0) - int(row["prev_holders_count"] or 0)
+            out.append(
+                {
+                    "security_id": int(row["security_id"]),
+                    "ticker": row["ticker"],
+                    "security_name": row["security_name"],
+                    "net_shares": net_shares,
+                    "net_holder_count": net_holder_count,
+                    "holders_count": int(row["curr_holders_count"] or 0),
+                    "top10_pct": float(row["top10_pct"] or 0.0),
+                    "total_value_usd": float(row["total_value_usd"] or 0.0),
+                    "instrument_type": row["instrument_type"],
+                }
+            )
+        return [x for x in out if _is_eligible_home_security(x)][:top_n]
+
+    accumulated = _fetch_ranked_movers(
+        where_clause="(COALESCE(c.total_shares, 0) - COALESCE(p.total_shares, 0)) > 0",
+        order_clause="(COALESCE(c.total_shares, 0) - COALESCE(p.total_shares, 0)) DESC, COALESCE(c.total_value_usd, 0) DESC",
+    )
+    distributed = _fetch_ranked_movers(
+        where_clause="(COALESCE(c.total_shares, 0) - COALESCE(p.total_shares, 0)) < 0",
+        order_clause="(COALESCE(c.total_shares, 0) - COALESCE(p.total_shares, 0)) ASC, COALESCE(c.total_value_usd, 0) DESC",
+    )
+    new_holders = _fetch_ranked_movers(
+        where_clause="(COALESCE(c.holders_count, 0) - COALESCE(p.holders_count, 0)) > 0",
+        order_clause="(COALESCE(c.holders_count, 0) - COALESCE(p.holders_count, 0)) DESC, (COALESCE(c.total_shares, 0) - COALESCE(p.total_shares, 0)) DESC",
+    )
+
+    spark_ids = sorted(
+        {
+            int(x["security_id"])
+            for x in accumulated
+            + distributed
+            + new_holders
+            if x.get("security_id") is not None
+        }
+    )
+    spark_map: dict[int, list[dict[str, object]]] = {}
+    if spark_ids:
+        spark_rows = db.execute(
+            text(
+                """
+                SELECT security_id, report_date, holders_count, total_shares
+                FROM agg_security_quarter
+                WHERE security_id IN :security_ids
+                  AND report_date IN :quarters
+                ORDER BY security_id, report_date
+                """
+            ).bindparams(bindparam("security_ids", expanding=True), bindparam("quarters", expanding=True)),
+            {"security_ids": spark_ids, "quarters": quarters},
+        ).mappings().all()
+        by_security: dict[int, dict[str, dict[str, object]]] = {}
+        for row in spark_rows:
+            sid = int(row["security_id"])
+            by_security.setdefault(sid, {})[str(row["report_date"])] = {
+                "holders_count": int(row["holders_count"] or 0),
+                "total_shares": float(row["total_shares"] or 0.0),
+            }
+        for sid in spark_ids:
+            timeline: list[dict[str, object]] = []
+            sec_map = by_security.get(sid, {})
+            for i, q in enumerate(quarters):
+                if i == 0:
+                    timeline.append({"report_date": q, "net_shares": 0.0, "net_holder_count": 0})
+                    continue
+                curr = sec_map.get(q)
+                prev = sec_map.get(quarters[i - 1])
+                curr_shares = float((curr or {}).get("total_shares", 0.0))
+                prev_shares = float((prev or {}).get("total_shares", 0.0))
+                curr_holders = int((curr or {}).get("holders_count", 0))
+                prev_holders = int((prev or {}).get("holders_count", 0))
+                timeline.append(
+                    {
+                        "report_date": q,
+                        "net_shares": curr_shares - prev_shares,
+                        "net_holder_count": curr_holders - prev_holders,
+                    }
+                )
+            spark_map[sid] = timeline
+
+    def _attach_series(rows_in: list[dict[str, object]]) -> list[dict[str, object]]:
+        out: list[dict[str, object]] = []
+        for row in rows_in:
+            sid = int(row["security_id"])
+            out.append({**row, "series": spark_map.get(sid, [])})
+        return out
+
+    scatter_rows = []
+    if scatter_n > 0:
+        scatter_rows = db.execute(
+            text(
+                """
+                SELECT
+                  a.security_id,
+                  COALESCE(a.holders_count, 0) AS holders_count,
+                  COALESCE(a.top10_pct, 0) AS top10_pct,
+                  COALESCE(a.total_value_usd, 0) AS total_value_usd,
+                  COALESCE(s.instrument_type, '') AS instrument_type,
+                  s.security_name,
+                  (
+                    SELECT si.id_value
+                    FROM security_identifiers si
+                    WHERE si.security_id = a.security_id
+                      AND si.id_type = 'TICKER'
+                      AND (si.valid_to IS NULL OR date('now') < date(si.valid_to))
+                    ORDER BY si.valid_from DESC
+                    LIMIT 1
+                  ) AS ticker
+                FROM agg_security_quarter a
+                LEFT JOIN securities s ON s.security_id = a.security_id
+                WHERE a.report_date = :latest_quarter
+                  AND (s.security_id IS NULL OR UPPER(COALESCE(s.instrument_type, '')) NOT IN ('OPTION', 'WARRANT', 'RIGHT'))
+                ORDER BY a.holders_count DESC, a.total_value_usd DESC
+                LIMIT :scatter_n
+                """
+            ),
+            {"latest_quarter": latest_quarter, "scatter_n": scatter_n},
+        ).mappings().all()
+
+    return {
+        "latest_quarter": latest_quarter,
+        "previous_quarter": previous_quarter,
+        "pulse": {
+            "universe_count": int(pulse_stats_latest["universe_count"]),
+            "accum_count": int(pulse_stats_latest["accum_count"]),
+            "dist_count": int(pulse_stats_latest["dist_count"]),
+            "breadth_accum_pct": float(pulse_stats_latest["breadth_accum_pct"]),
+            "breadth_dist_pct": float(pulse_stats_latest["breadth_dist_pct"]),
+            "holders_added": int(pulse_stats_latest["holders_added"]),
+            "holders_trimmed": int(pulse_stats_latest["holders_trimmed"]),
+            "participation_increase_pct": float(pulse_stats_latest["participation_increase_pct"]),
+            "net_value_change_usd": float(pulse_stats_latest["net_value_change_usd"]),
+            "form_13d_30d": form_13d_30d,
+            "form_13g_30d": form_13g_30d,
+            "bo_13d_share_30d": (form_13d_30d / (form_13d_30d + form_13g_30d))
+            if (form_13d_30d + form_13g_30d) > 0
+            else 0.0,
+            "bo_13g_share_30d": (form_13g_30d / (form_13d_30d + form_13g_30d))
+            if (form_13d_30d + form_13g_30d) > 0
+            else 0.0,
+        },
+        "pulse_series": {
+            "breadth_accum_pct": pulse_series_breadth,
+            "participation_increase_pct": pulse_series_participation,
+            "net_value_change_usd": pulse_series_value,
+            "bo_13d_share_pct": pulse_series_13d_share,
+        },
+        "top_movers": {
+            "accumulated": _attach_series(accumulated),
+            "distributed": _attach_series(distributed),
+            "new_holders": _attach_series(new_holders),
+        },
+        "breadth_concentration": [
+            {
+                "security_id": int(x["security_id"]),
+                "ticker": x["ticker"],
+                "security_name": x["security_name"],
+                "holders_count": int(x["holders_count"] or 0),
+                "top10_pct": float(x["top10_pct"] or 0.0),
+                "total_value_usd": float(x["total_value_usd"] or 0.0),
+            }
+            for x in scatter_rows
+            if _is_eligible_home_security(dict(x))
+        ],
     }
 
 
