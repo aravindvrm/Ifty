@@ -52,10 +52,10 @@ export default async function HomePage() {
     overview = await getHomeOverview({ quartersN: 8, topN: 10, scatterN: 0 });
   } catch (error) {
     return (
-      <section className="rounded-2xl border border-line/80 bg-card/70 p-6 shadow-panel">
+      <section className="rounded-none border border-line/80 bg-card/70 p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Institutional Flow Dashboard</h1>
         <p className="mt-2 text-sm text-slate-400">Failed to load homepage analytics.</p>
-        <pre className="mt-3 overflow-auto rounded-xl border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
+        <pre className="mt-3 overflow-auto rounded-none border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
           {String(error)}
         </pre>
       </section>
@@ -92,7 +92,7 @@ export default async function HomePage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-line/80 bg-gradient-to-br from-card via-cardSoft to-[#0b1426] p-6 shadow-panel">
+      <section className="rounded-none border border-line/80 bg-gradient-to-br from-card via-cardSoft to-[#0b1426] p-6 shadow-panel">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-slate-100">Market Pulse</h1>
@@ -101,21 +101,21 @@ export default async function HomePage() {
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-            <div className="rounded-xl border border-line/80 bg-black/25 px-3 py-2 text-slate-300">
+            <div className="rounded-none border border-line/80 bg-black/25 px-3 py-2 text-slate-300">
               <div className="text-slate-500">Latest Quarter</div>
               <div className="mt-1 text-sm font-semibold text-slate-100">{overview.latest_quarter ?? "-"}</div>
             </div>
-            <div className="rounded-xl border border-line/80 bg-black/25 px-3 py-2 text-slate-300">
+            <div className="rounded-none border border-line/80 bg-black/25 px-3 py-2 text-slate-300">
               <div className="text-slate-500">Previous Quarter</div>
               <div className="mt-1 text-sm font-semibold text-slate-100">{overview.previous_quarter ?? "-"}</div>
             </div>
-            <div className="rounded-xl border border-line/80 bg-black/25 px-3 py-2 text-slate-300">
+            <div className="rounded-none border border-line/80 bg-black/25 px-3 py-2 text-slate-300">
               <div className="text-slate-500">Active Universe</div>
               <div className="mt-1 text-sm font-semibold text-slate-100">
                 {fmtNumber(overview.pulse.universe_count)}
               </div>
             </div>
-            <div className="rounded-xl border border-line/80 bg-black/25 px-3 py-2 text-slate-300">
+            <div className="rounded-none border border-line/80 bg-black/25 px-3 py-2 text-slate-300">
               <div className="text-slate-500">Mapped Coverage</div>
               <div className="mt-1 text-sm font-semibold text-slate-100">
                 {fmtPct(overview.trust.mapping_coverage_pct_latest_quarter)}
@@ -127,11 +127,11 @@ export default async function HomePage() {
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {pulseCards.map((card) => (
-          <article key={card.title} className="rounded-2xl border border-line/80 bg-card/80 p-4 shadow-panel">
+          <article key={card.title} className="rounded-none border border-line/80 bg-card/80 p-4 shadow-panel">
             <div className="text-xs uppercase tracking-wide text-slate-500">{card.title}</div>
             <div className={`mt-2 text-2xl font-semibold ${card.valueClass ?? "text-slate-100"}`}>{card.value}</div>
             <div className="mt-1 text-xs text-slate-500">{card.subtitle}</div>
-            <div className="mt-3 h-12 rounded-lg border border-line/70 bg-black/20 p-1">
+            <div className="mt-3 h-12 rounded-none border border-line/70 bg-black/20 p-1">
               <Sparkline data={card.spark} />
             </div>
           </article>
@@ -139,21 +139,21 @@ export default async function HomePage() {
       </section>
 
       <section>
-        <article className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+        <article className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-100">Top Movers</h2>
             <span className="text-xs text-slate-500">Ranked by latest QoQ aggregate movement</span>
           </div>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
             {columns.map((column) => (
-              <div key={column.key} className="rounded-xl border border-line/70 bg-black/20 p-3">
+              <div key={column.key} className="rounded-none border border-line/70 bg-black/20 p-3">
                 <h3 className="text-sm font-semibold text-slate-200">{column.title}</h3>
                 <div className="mt-3 space-y-2">
                   {column.rows.length ? (
                     column.rows.slice(0, 10).map((row) => (
                       <div
                         key={`${column.key}-${row.security_id}`}
-                        className="rounded-lg border border-line/60 bg-cardSoft/50 p-2.5"
+                        className="rounded-none border border-line/60 bg-cardSoft/50 p-2.5"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <Link
@@ -171,7 +171,7 @@ export default async function HomePage() {
                           <span>Net holders</span>
                           <span className={toneClass(row.net_holder_count)}>{fmtSigned(row.net_holder_count, 0)}</span>
                         </div>
-                        <div className="mt-2 h-9 rounded-md border border-line/60 bg-black/25 px-1">
+                        <div className="mt-2 h-9 rounded-none border border-line/60 bg-black/25 px-1">
                           <Sparkline data={row.series as SparkPoint[]} />
                         </div>
                       </div>
@@ -187,11 +187,11 @@ export default async function HomePage() {
       </section>
 
       <section>
-        <article className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+        <article className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
           <h2 className="text-lg font-semibold text-slate-100">Largest New Stake (30d)</h2>
           {overview.largest_new_stake_30d ? (
             <div className="mt-4 space-y-3">
-              <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+              <div className="rounded-none border border-line/70 bg-black/20 p-3">
                 <div className="text-xs text-slate-500">Security</div>
                 <div className="mt-1 text-sm font-medium text-slate-100">
                   {overview.largest_new_stake_30d.ticker ? (
@@ -210,7 +210,7 @@ export default async function HomePage() {
                   )}
                 </div>
               </div>
-              <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+              <div className="rounded-none border border-line/70 bg-black/20 p-3">
                 <div className="text-xs text-slate-500">Institution</div>
                 <div className="mt-1 text-sm font-medium text-slate-100">
                   {overview.largest_new_stake_30d.manager_id ? (
@@ -227,20 +227,20 @@ export default async function HomePage() {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+                <div className="rounded-none border border-line/70 bg-black/20 p-3">
                   <div className="text-xs text-slate-500">% Beneficial Owned</div>
                   <div className="mt-1 text-sm font-semibold text-emerald-300">
                     {fmtPct((overview.largest_new_stake_30d.percent_beneficial_owned ?? 0) / 100)}
                   </div>
                 </div>
-                <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+                <div className="rounded-none border border-line/70 bg-black/20 p-3">
                   <div className="text-xs text-slate-500">Filed Date</div>
                   <div className="mt-1 text-sm font-semibold text-slate-100">
                     {overview.largest_new_stake_30d.report_date ?? "-"}
                   </div>
                 </div>
               </div>
-              <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+              <div className="rounded-none border border-line/70 bg-black/20 p-3">
                 <div className="text-xs text-slate-500">Form</div>
                 <div className="mt-1 text-sm font-semibold text-slate-100">
                   {overview.largest_new_stake_30d.form_type ?? "-"}
@@ -253,37 +253,37 @@ export default async function HomePage() {
         </article>
       </section>
 
-      <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+      <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-100">Coverage & Trust</h2>
           <span className="text-xs text-slate-500">Latest data integrity and universe coverage snapshot</span>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+          <div className="rounded-none border border-line/70 bg-black/20 p-3">
             <div className="text-xs text-slate-500">Institutions in Universe</div>
             <div className="mt-1 text-xl font-semibold text-slate-100">
               {fmtNumber(overview.trust.managers_in_universe)}
             </div>
           </div>
-          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+          <div className="rounded-none border border-line/70 bg-black/20 p-3">
             <div className="text-xs text-slate-500">Institutions with Positions</div>
             <div className="mt-1 text-xl font-semibold text-slate-100">
               {fmtNumber(overview.trust.managers_with_positions)}
             </div>
           </div>
-          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+          <div className="rounded-none border border-line/70 bg-black/20 p-3">
             <div className="text-xs text-slate-500">Mapped Rows (Latest Quarter)</div>
             <div className="mt-1 text-xl font-semibold text-slate-100">
               {fmtNumber(overview.trust.holdings_rows_latest_quarter)}
             </div>
           </div>
-          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+          <div className="rounded-none border border-line/70 bg-black/20 p-3">
             <div className="text-xs text-slate-500">Mapping Coverage</div>
             <div className="mt-1 text-xl font-semibold text-slate-100">
               {fmtPct(overview.trust.mapping_coverage_pct_latest_quarter)}
             </div>
           </div>
-          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+          <div className="rounded-none border border-line/70 bg-black/20 p-3">
             <div className="text-xs text-slate-500">13D/G Breadth (30d)</div>
             <div className="mt-1 text-sm text-slate-300">
               {fmtNumber(overview.bo_activity_30d.unique_filers)} filers /{" "}

@@ -54,9 +54,9 @@ export function SecurityActivePositionsTable({ rows }: { rows: Row[] }) {
   }
 
   return (
-    <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+    <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
       <h3 className="text-lg font-semibold text-slate-100">Active Positions</h3>
-      <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+      <div className="mt-4 overflow-x-auto rounded-none border border-line/70">
         <table className="min-w-full divide-y divide-line/60 text-sm">
           <thead>
             <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
@@ -109,7 +109,7 @@ export function SecurityActivePositionsTable({ rows }: { rows: Row[] }) {
           type="button"
           onClick={() => setPage((p) => Math.max(1, p - 1))}
           disabled={clampedPage <= 1}
-          className="rounded-lg border border-line/80 bg-cardSoft/80 px-2.5 py-1 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white disabled:opacity-40"
+          className="rounded-none border border-line/80 bg-cardSoft/80 px-2.5 py-1 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white disabled:opacity-40"
         >
           Prev
         </button>
@@ -120,7 +120,7 @@ export function SecurityActivePositionsTable({ rows }: { rows: Row[] }) {
           type="button"
           onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
           disabled={clampedPage >= totalPages}
-          className="rounded-lg border border-line/80 bg-cardSoft/80 px-2.5 py-1 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white disabled:opacity-40"
+          className="rounded-none border border-line/80 bg-cardSoft/80 px-2.5 py-1 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white disabled:opacity-40"
         >
           Next
         </button>

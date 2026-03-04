@@ -13,7 +13,7 @@ type AllowedEventType = (typeof ALLOWED_EVENT_TYPES)[number];
 
 function toEventClass(eventType: string): string {
   const value = (eventType || "").toUpperCase();
-  const base = "inline-flex rounded-full border px-2 py-0.5 text-[11px]";
+  const base = "inline-flex rounded-none border px-2 py-0.5 text-[11px]";
   if (value === "NEW_5PCT" || value === "AMENDMENT_UP") {
     return `${base} border-emerald-400/40 bg-emerald-400/10 text-emerald-300`;
   }
@@ -110,13 +110,13 @@ export function FeedLiveTable({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search ticker, security, institution, CUSIP..."
-          className="rounded-xl border border-line/80 bg-card/70 px-2.5 py-1.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70 lg:col-span-4"
+          className="rounded-none border border-line/80 bg-card/70 px-2.5 py-1.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70 lg:col-span-4"
         />
         <div className="relative lg:col-span-2">
           <select
             value={eventType}
             onChange={(event) => setEventType(event.target.value)}
-            className="w-full appearance-none rounded-lg border border-line/70 bg-transparent px-2 py-1 text-xs text-slate-200 outline-none transition focus:border-accentBlue/70"
+            className="w-full appearance-none rounded-none border border-line/70 bg-transparent px-2 py-1 text-xs text-slate-200 outline-none transition focus:border-accentBlue/70"
           >
             <option value="ALL">All Events</option>
             {eventTypes.map((value) => (
@@ -131,7 +131,7 @@ export function FeedLiveTable({
           <select
             value={formType}
             onChange={(event) => setFormType(event.target.value)}
-            className="w-full appearance-none rounded-lg border border-line/70 bg-transparent px-2 py-1 text-xs text-slate-200 outline-none transition focus:border-accentBlue/70"
+            className="w-full appearance-none rounded-none border border-line/70 bg-transparent px-2 py-1 text-xs text-slate-200 outline-none transition focus:border-accentBlue/70"
           >
             <option value="ALL">All Forms</option>
             {formTypes.map((value) => (
@@ -146,7 +146,7 @@ export function FeedLiveTable({
           <select
             value={windowDays}
             onChange={(event) => setWindowDays(event.target.value)}
-            className="w-full appearance-none rounded-lg border border-line/70 bg-transparent px-2 py-1 text-xs text-slate-200 outline-none transition focus:border-accentBlue/70"
+            className="w-full appearance-none rounded-none border border-line/70 bg-transparent px-2 py-1 text-xs text-slate-200 outline-none transition focus:border-accentBlue/70"
           >
             <option value="7">Last 7D</option>
             <option value="30">Last 30D</option>
@@ -158,7 +158,7 @@ export function FeedLiveTable({
           <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
         </div>
         <div className="flex items-center justify-end lg:col-span-2">
-          <span className="rounded-lg border border-line/70 bg-transparent px-2 py-1 text-[11px] text-slate-400">
+          <span className="rounded-none border border-line/70 bg-transparent px-2 py-1 text-[11px] text-slate-400">
             Mode: High Quality Mapped
           </span>
         </div>
@@ -178,14 +178,14 @@ export function FeedLiveTable({
               setFormType("ALL");
               setWindowDays("90");
             }}
-            className="rounded-lg border border-line/80 bg-card/70 px-2.5 py-1 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-slate-100"
+            className="rounded-none border border-line/80 bg-card/70 px-2.5 py-1 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-slate-100"
           >
             Clear Filters
           </button>
         )}
       </div>
 
-      <div className="mt-3 overflow-x-auto rounded-xl border border-line/70">
+      <div className="mt-3 overflow-x-auto rounded-none border border-line/70">
         <table className="min-w-full divide-y divide-line/60 text-sm">
           <thead>
             <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">

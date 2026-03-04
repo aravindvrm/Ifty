@@ -20,7 +20,7 @@ export default async function SecuritySearchPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Security Search</h1>
         <p className="mt-2 text-sm text-slate-400">Search by ticker or issuer name.</p>
         <EntitySearchInput
@@ -28,16 +28,16 @@ export default async function SecuritySearchPage({ searchParams }: Props) {
           defaultValue={query}
           fallbackPath="/security"
           className="relative mt-4 max-w-2xl"
-          inputClassName="min-w-[260px] w-full rounded-xl border border-line/80 bg-card/70 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70"
-          dropdownClassName="absolute left-0 right-0 top-[calc(100%+8px)] z-20 overflow-hidden rounded-xl border border-line/80 bg-[#02050c] shadow-panel"
+          inputClassName="min-w-[260px] w-full rounded-none border border-line/80 bg-card/70 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70"
+          dropdownClassName="absolute left-0 right-0 top-[calc(100%+8px)] z-20 overflow-hidden rounded-none border border-line/80 bg-[#02050c] shadow-panel"
         />
         <p className="mt-2 text-xs text-slate-500">Use ↑/↓ and Enter to navigate results.</p>
       </section>
 
-      <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+      <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
         <h2 className="text-lg font-semibold text-slate-100">Results</h2>
         {loadError ? <p className="mt-2 text-sm text-rose-300">Search failed: {loadError}</p> : null}
-        <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+        <div className="mt-4 overflow-x-auto rounded-none border border-line/70">
           <table className="min-w-full divide-y divide-line/60 text-sm">
             <thead>
               <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">

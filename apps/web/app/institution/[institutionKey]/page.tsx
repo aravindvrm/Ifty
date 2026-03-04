@@ -15,10 +15,10 @@ export default async function InstitutionPage({ params }: Props) {
     institution = await getInstitution(institutionKey);
   } catch (error) {
     return (
-      <section className="rounded-2xl border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Institution {institutionKey}</h1>
         <p className="mt-2 text-sm text-slate-400">Failed to load institution data.</p>
-        <pre className="mt-3 overflow-auto rounded-xl border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
+        <pre className="mt-3 overflow-auto rounded-none border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
           {String(error)}
         </pre>
       </section>
@@ -51,7 +51,7 @@ export default async function InstitutionPage({ params }: Props) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-100">
@@ -64,7 +64,7 @@ export default async function InstitutionPage({ params }: Props) {
           <div className="flex justify-start lg:justify-end">
             <Link
               href="/institution"
-              className="rounded-xl border border-line/80 bg-cardSoft/80 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white"
+              className="rounded-none border border-line/80 bg-cardSoft/80 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white"
             >
               Back to institution directory
             </Link>
@@ -73,21 +73,21 @@ export default async function InstitutionPage({ params }: Props) {
       </section>
 
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-xl border border-line/80 bg-card/70 p-4">
+        <div className="rounded-none border border-line/80 bg-card/70 p-4">
           <div className="text-xs text-slate-500">Turnover</div>
           <div className="mt-1 text-xl font-semibold text-slate-100">{fmtPct(institution.metrics.turnover_ratio)}</div>
         </div>
-        <div className="rounded-xl border border-line/80 bg-card/70 p-4">
+        <div className="rounded-none border border-line/80 bg-card/70 p-4">
           <div className="text-xs text-slate-500">Top 10 Concentration</div>
           <div className="mt-1 text-xl font-semibold text-slate-100">{fmtPct(institution.metrics.top10_concentration_pct)}</div>
         </div>
-        <div className="rounded-xl border border-line/80 bg-card/70 p-4">
+        <div className="rounded-none border border-line/80 bg-card/70 p-4">
           <div className="text-xs text-slate-500">New / Exited Positions</div>
           <div className="mt-1 text-xl font-semibold text-slate-100">
             {fmtNumber(institution.metrics.new_positions_count ?? 0)} / {fmtNumber(institution.metrics.exited_positions_count ?? 0)}
           </div>
         </div>
-        <div className="rounded-xl border border-line/80 bg-card/70 p-4">
+        <div className="rounded-none border border-line/80 bg-card/70 p-4">
           <div className="text-xs text-slate-500">Portfolio Value</div>
           <div className="mt-1 text-xl font-semibold text-slate-100">{fmtUsd(institution.metrics.total_value_current)}</div>
         </div>
@@ -107,9 +107,9 @@ export default async function InstitutionPage({ params }: Props) {
       />
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <div className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+        <div className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
           <h2 className="text-lg font-semibold text-slate-100">Top Buys QoQ</h2>
-          <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+          <div className="mt-4 overflow-x-auto rounded-none border border-line/70">
             <table className="min-w-full divide-y divide-line/60 text-sm">
               <thead>
                 <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
@@ -137,9 +137,9 @@ export default async function InstitutionPage({ params }: Props) {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+        <div className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
           <h2 className="text-lg font-semibold text-slate-100">Top Sells QoQ</h2>
-          <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+          <div className="mt-4 overflow-x-auto rounded-none border border-line/70">
             <table className="min-w-full divide-y divide-line/60 text-sm">
               <thead>
                 <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
@@ -168,9 +168,9 @@ export default async function InstitutionPage({ params }: Props) {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+      <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
         <h2 className="text-lg font-semibold text-slate-100">Current Top Positions</h2>
-        <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+        <div className="mt-4 overflow-x-auto rounded-none border border-line/70">
           <table className="min-w-full divide-y divide-line/60 text-sm">
             <thead>
               <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">

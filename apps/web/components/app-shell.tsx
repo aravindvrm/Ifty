@@ -53,7 +53,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               type="button"
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               onClick={() => setCollapsed((value) => !value)}
-              className="rounded-lg border border-line/70 bg-card/70 p-1.5 text-slate-300 transition hover:border-accentBlue/60 hover:text-slate-100"
+              className="rounded-none border border-line/70 bg-card/70 p-1.5 text-slate-300 transition hover:border-accentBlue/60 hover:text-slate-100"
             >
               {collapsed ? <Menu className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
             </button>
@@ -69,7 +69,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   href={item.href}
                   title={collapsed ? item.label : undefined}
                   className={[
-                    "group flex items-center rounded-xl border px-3 py-2.5 text-sm transition-all",
+                    "group flex items-center rounded-none border px-3 py-2.5 text-sm transition-all",
                     collapsed ? "justify-center" : "gap-3",
                     active
                       ? "border-accentBlue/55 bg-accentBlue/15 text-white shadow-[0_0_0_1px_rgba(43,196,255,.16)_inset]"
@@ -98,8 +98,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   fallbackPath="/security"
                   showIcon
                   className="relative w-full max-w-xl"
-                  inputClassName="w-full rounded-xl border border-line/80 bg-card/70 py-1.5 pl-9 pr-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70"
-                  dropdownClassName="absolute left-0 right-0 top-[calc(100%+8px)] z-30 overflow-hidden rounded-xl border border-line/80 bg-[#02050c] shadow-panel"
+                  inputClassName="w-full rounded-none border border-line/80 bg-card/70 py-1.5 pl-9 pr-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70"
+                  dropdownClassName="absolute left-0 right-0 top-[calc(100%+8px)] z-30 overflow-hidden rounded-none border border-line/80 bg-[#02050c] shadow-panel"
                 />
                 <div className="inline-flex items-center px-1 py-1.5">
                   <span className="text-xl font-semibold tracking-wide text-slate-100">Ifty</span>

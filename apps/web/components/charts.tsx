@@ -57,7 +57,7 @@ export function NetAccumulationBarChart({ data }: { data: QuarterBarPoint[] }) {
                   margin: "0 auto",
                   width: 30,
                   height: h,
-                  borderRadius: 6,
+                  borderRadius: 0,
                   background: isPos ? "#22c55e" : "#ef4444"
                 }}
               />

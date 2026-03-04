@@ -63,7 +63,7 @@ export function TickerIcon({ ticker, label, size = 20, className }: Props) {
         display: "inline-flex",
         width: size,
         height: size,
-        borderRadius: Math.max(4, Math.round(size * 0.25)),
+        borderRadius: 0,
         alignItems: "center",
         justifyContent: "center",
         overflow: "hidden",

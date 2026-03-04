@@ -31,27 +31,27 @@ export function OpsControls() {
   }
 
   return (
-    <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+    <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
       <h3 className="text-lg font-semibold text-slate-100">Job Controls</h3>
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           disabled={!!busy}
           onClick={() => run("Resolve Mappings", "/jobs/resolve-mappings?limit=0")}
-          className="rounded-xl border border-line/80 bg-cardSoft/80 px-3 py-2 text-sm text-slate-200 transition hover:border-accentBlue/70 hover:text-white disabled:opacity-40"
+          className="rounded-none border border-line/80 bg-cardSoft/80 px-3 py-2 text-sm text-slate-200 transition hover:border-accentBlue/70 hover:text-white disabled:opacity-40"
         >
           Resolve Mappings
         </button>
         <button
           disabled={!!busy}
           onClick={() => run("Refresh Aggregates", "/jobs/refresh-aggregates")}
-          className="rounded-xl border border-line/80 bg-cardSoft/80 px-3 py-2 text-sm text-slate-200 transition hover:border-accentBlue/70 hover:text-white disabled:opacity-40"
+          className="rounded-none border border-line/80 bg-cardSoft/80 px-3 py-2 text-sm text-slate-200 transition hover:border-accentBlue/70 hover:text-white disabled:opacity-40"
         >
           Refresh Aggregates
         </button>
         <button
           disabled={!!busy}
           onClick={() => run("Refresh Universe", "/jobs/refresh-universe?top_n=300")}
-          className="rounded-xl border border-line/80 bg-cardSoft/80 px-3 py-2 text-sm text-slate-200 transition hover:border-accentBlue/70 hover:text-white disabled:opacity-40"
+          className="rounded-none border border-line/80 bg-cardSoft/80 px-3 py-2 text-sm text-slate-200 transition hover:border-accentBlue/70 hover:text-white disabled:opacity-40"
         >
           Refresh Universe
         </button>

@@ -17,7 +17,7 @@ module.exports = {
         accentGreen: "#32d5a1",
       },
       borderRadius: {
-        xl2: "1.1rem",
+        xl2: "0px",
       },
       boxShadow: {
         panel: "0 18px 60px rgba(0,0,0,0.45)",

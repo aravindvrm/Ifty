@@ -31,10 +31,10 @@ export default async function SecurityPage({ params, searchParams }: Props) {
     security = await getSecurity(ticker);
   } catch (error) {
     return (
-      <section className="rounded-2xl border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Security: {ticker.toUpperCase()}</h1>
         <p className="mt-2 text-sm text-slate-400">Failed to load security data.</p>
-        <pre className="mt-3 overflow-auto rounded-xl border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
+        <pre className="mt-3 overflow-auto rounded-none border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
           {String(error)}
         </pre>
       </section>
@@ -75,7 +75,7 @@ export default async function SecurityPage({ params, searchParams }: Props) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="inline-flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-100">
@@ -92,37 +92,37 @@ export default async function SecurityPage({ params, searchParams }: Props) {
             <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
               <Link
                 href="/security"
-                className="rounded-xl border border-line/80 bg-cardSoft/80 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white"
+                className="rounded-none border border-line/80 bg-cardSoft/80 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white"
               >
                 Search another security
               </Link>
               <Link
                 href="/institution"
-                className="rounded-xl border border-line/80 bg-cardSoft/80 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white"
+                className="rounded-none border border-line/80 bg-cardSoft/80 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white"
               >
                 Browse institutions
               </Link>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              <div className="rounded-xl border border-line/80 bg-black/20 p-2.5">
+              <div className="rounded-none border border-line/80 bg-black/20 p-2.5">
                 <div className="text-[11px] text-slate-500">Holders</div>
                 <div className="mt-1 text-sm font-semibold text-slate-100">
                   {fmtNumber(security.ownership_summary.holders_count ?? 0)}
                 </div>
               </div>
-              <div className="rounded-xl border border-line/80 bg-black/20 p-2.5">
+              <div className="rounded-none border border-line/80 bg-black/20 p-2.5">
                 <div className="text-[11px] text-slate-500">Total Shares</div>
                 <div className="mt-1 text-sm font-semibold text-slate-100">
                   {fmtNumber(security.ownership_summary.total_shares ?? 0)}
                 </div>
               </div>
-              <div className="rounded-xl border border-line/80 bg-black/20 p-2.5">
+              <div className="rounded-none border border-line/80 bg-black/20 p-2.5">
                 <div className="text-[11px] text-slate-500">Total Value</div>
                 <div className="mt-1 text-sm font-semibold text-slate-100">
                   {fmtUsd(security.ownership_summary.total_value_usd ?? 0)}
                 </div>
               </div>
-              <div className="rounded-xl border border-line/80 bg-black/20 p-2.5">
+              <div className="rounded-none border border-line/80 bg-black/20 p-2.5">
                 <div className="text-[11px] text-slate-500">QoQ Δ Shares</div>
                 <div
                   className={`mt-1 text-sm font-semibold ${
@@ -132,7 +132,7 @@ export default async function SecurityPage({ params, searchParams }: Props) {
                   {fmtNumber(security.ownership_summary.qoq_net_change_shares ?? 0)}
                 </div>
               </div>
-              <div className="rounded-xl border border-line/80 bg-black/20 p-2.5">
+              <div className="rounded-none border border-line/80 bg-black/20 p-2.5">
                 <div className="text-[11px] text-slate-500">Top 10 Conc.</div>
                 <div className="mt-1 text-sm font-semibold text-slate-100">
                   {fmtPct(security.ownership_summary.top10_concentration_pct ?? security.concentration.top10_pct ?? 0)}
@@ -143,30 +143,30 @@ export default async function SecurityPage({ params, searchParams }: Props) {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+      <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
         <h2 className="text-lg font-semibold text-slate-100">Activity Breakdown</h2>
         <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+          <div className="rounded-none border border-line/70 bg-black/20 p-3">
             <div className="text-xs text-slate-500">Total</div>
             <div className="mt-1 text-lg font-semibold text-slate-100">{fmtNumber(security.activity_breakdown.total ?? 0)}</div>
           </div>
-          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+          <div className="rounded-none border border-line/70 bg-black/20 p-3">
             <div className="text-xs text-slate-500">New</div>
             <div className="mt-1 text-lg font-semibold text-emerald-300">{fmtNumber(security.activity_breakdown.new ?? 0)}</div>
           </div>
-          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+          <div className="rounded-none border border-line/70 bg-black/20 p-3">
             <div className="text-xs text-slate-500">Increased</div>
             <div className="mt-1 text-lg font-semibold text-emerald-300">{fmtNumber(security.activity_breakdown.increased ?? 0)}</div>
           </div>
-          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+          <div className="rounded-none border border-line/70 bg-black/20 p-3">
             <div className="text-xs text-slate-500">Decreased</div>
             <div className="mt-1 text-lg font-semibold text-rose-300">{fmtNumber(security.activity_breakdown.decreased ?? 0)}</div>
           </div>
-          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+          <div className="rounded-none border border-line/70 bg-black/20 p-3">
             <div className="text-xs text-slate-500">Sold Out</div>
             <div className="mt-1 text-lg font-semibold text-rose-300">{fmtNumber(security.activity_breakdown.sold_out ?? 0)}</div>
           </div>
-          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+          <div className="rounded-none border border-line/70 bg-black/20 p-3">
             <div className="text-xs text-slate-500">Activity</div>
             <div className="mt-1 text-lg font-semibold text-slate-100">{fmtNumber(security.activity_breakdown.activity ?? 0)}</div>
           </div>
@@ -192,7 +192,7 @@ export default async function SecurityPage({ params, searchParams }: Props) {
 
       <NetAccumulationBarChart data={barData} />
 
-      <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+      <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
         <h2 className="text-lg font-semibold text-slate-100">13D/G Events Feed</h2>
         {eventsError ? <p className="mt-2 text-sm text-rose-300">Events unavailable: {eventsError}</p> : null}
         <form className="mt-4 flex flex-wrap items-center gap-2" method="get">
@@ -200,26 +200,26 @@ export default async function SecurityPage({ params, searchParams }: Props) {
             name="start_date"
             defaultValue={startDate}
             placeholder="Start (YYYY-MM-DD)"
-            className="rounded-xl border border-line/80 bg-card/70 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accentBlue/70"
+            className="rounded-none border border-line/80 bg-card/70 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accentBlue/70"
           />
           <input
             name="end_date"
             defaultValue={endDate}
             placeholder="End (YYYY-MM-DD)"
-            className="rounded-xl border border-line/80 bg-card/70 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accentBlue/70"
+            className="rounded-none border border-line/80 bg-card/70 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accentBlue/70"
           />
-          <label className="inline-flex items-center gap-2 rounded-xl border border-line/80 bg-cardSoft/70 px-3 py-2 text-xs text-slate-300">
+          <label className="inline-flex items-center gap-2 rounded-none border border-line/80 bg-cardSoft/70 px-3 py-2 text-xs text-slate-300">
             <input type="checkbox" name="new_5pct_only" value="1" defaultChecked={new5PctOnly} className="h-4 w-4" />
             NEW_5PCT only
           </label>
           <button
             type="submit"
-            className="rounded-xl border border-line/80 bg-cardSoft/80 px-3 py-2 text-sm text-slate-200 transition hover:border-accentBlue/70 hover:text-white"
+            className="rounded-none border border-line/80 bg-cardSoft/80 px-3 py-2 text-sm text-slate-200 transition hover:border-accentBlue/70 hover:text-white"
           >
             Apply
           </button>
         </form>
-        <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+        <div className="mt-4 overflow-x-auto rounded-none border border-line/70">
           <table className="min-w-full divide-y divide-line/60 text-sm">
             <thead>
               <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">

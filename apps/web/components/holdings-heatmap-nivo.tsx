@@ -176,13 +176,13 @@ function NivoNode({ node }: any) {
   return (
     <g transform={`translate(${node.x},${node.y})`}>
       <clipPath id={clipId}>
-        <rect x={1} y={1} width={Math.max(0, width - 2)} height={Math.max(0, height - 2)} rx={5} ry={5} />
+        <rect x={1} y={1} width={Math.max(0, width - 2)} height={Math.max(0, height - 2)} rx={0} ry={0} />
       </clipPath>
       <rect
         width={width}
         height={height}
-        rx={5}
-        ry={5}
+        rx={0}
+        ry={0}
         fill={String(node.color)}
         stroke="rgba(226, 232, 240, 0.24)"
         strokeWidth={1}
@@ -335,6 +335,7 @@ export function HoldingsHeatmapNivo({
           enableLabel={false}
           colors={(node: any) => String(node.data?.color ?? "#0ea5e9")}
           colorBy="id"
+          borderRadius={0}
           borderWidth={1}
           borderColor={{ from: "color", modifiers: [["darker", 0.55]] }}
           isInteractive
