@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 
 import { getInstitutionUniverse, searchSecurities, type InstitutionUniverseResponse } from "@/lib/api";
+import { TickerIcon } from "@/components/ticker-icon";
 
 type SecurityHit = {
   security_id: number;
@@ -22,6 +23,7 @@ type SuggestionItem = {
   primary: string;
   secondary: string;
   kind: "security" | "institution";
+  ticker?: string;
 };
 
 let institutionUniverseCache: InstitutionHit[] | null = null;
@@ -95,6 +97,7 @@ export function EntitySearchInput({
         primary: row.ticker,
         secondary: row.security_name ?? row.issuer_name ?? "-",
         kind: "security",
+        ticker: row.ticker,
       }));
   }, [includeSecurities, securityHits]);
 
@@ -297,7 +300,10 @@ export function EntitySearchInput({
                       active ? "bg-accentBlue/20 text-white" : "text-slate-200 hover:bg-card/70",
                     ].join(" ")}
                   >
-                    <span className="font-medium text-accentBlue">{item.primary}</span>
+                    <span className="inline-flex min-w-0 items-center gap-2 font-medium text-accentBlue">
+                      <TickerIcon ticker={item.ticker ?? item.primary} label={item.secondary} />
+                      <span>{item.primary}</span>
+                    </span>
                     <span className="truncate text-xs text-slate-500">{item.secondary}</span>
                   </button>
                 );

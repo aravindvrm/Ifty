@@ -244,6 +244,27 @@ class Sec13FIngestionService:
         rows: list[dict[str, str | float | None]],
     ) -> int:
         inserted = 0
+        params_list: list[dict[str, object]] = []
+        insert_stmt = text(
+            """
+            INSERT INTO holdings_13f (
+              filing_id, manager_id, security_id, report_date,
+              issuer_name_raw, class_title_raw, cusip_raw, ticker_raw,
+              value_usd_thousands, shares, share_type, option_type,
+              investment_discretion, other_manager_text,
+              voting_sole, voting_shared, voting_none,
+              row_hash, mapping_status, mapping_confidence
+            ) VALUES (
+              :filing_id, :manager_id, NULL, :report_date,
+              :issuer_name_raw, :class_title_raw, :cusip_raw, NULL,
+              :value_usd_thousands, :shares, :share_type, :option_type,
+              :investment_discretion, :other_manager_text,
+              :voting_sole, :voting_shared, :voting_none,
+              :row_hash, 'UNMAPPED', NULL
+            )
+            ON CONFLICT (filing_id, row_hash) DO NOTHING
+            """
+        )
         for row in rows:
             row_sig = _row_hash(
                 [
@@ -257,27 +278,7 @@ class Sec13FIngestionService:
                     str(row.get("option_type") or ""),
                 ]
             )
-            result = self.db.execute(
-                text(
-                    """
-                    INSERT INTO holdings_13f (
-                      filing_id, manager_id, security_id, report_date,
-                      issuer_name_raw, class_title_raw, cusip_raw, ticker_raw,
-                      value_usd_thousands, shares, share_type, option_type,
-                      investment_discretion, other_manager_text,
-                      voting_sole, voting_shared, voting_none,
-                      row_hash, mapping_status, mapping_confidence
-                    ) VALUES (
-                      :filing_id, :manager_id, NULL, :report_date,
-                      :issuer_name_raw, :class_title_raw, :cusip_raw, NULL,
-                      :value_usd_thousands, :shares, :share_type, :option_type,
-                      :investment_discretion, :other_manager_text,
-                      :voting_sole, :voting_shared, :voting_none,
-                      :row_hash, 'UNMAPPED', NULL
-                    )
-                    ON CONFLICT (filing_id, row_hash) DO NOTHING
-                    """
-                ),
+            params_list.append(
                 {
                     "filing_id": filing_id,
                     "manager_id": manager_id,
@@ -295,9 +296,14 @@ class Sec13FIngestionService:
                     "voting_shared": row.get("voting_shared"),
                     "voting_none": row.get("voting_none"),
                     "row_hash": row_sig,
-                },
+                }
             )
-            inserted += int(result.rowcount or 0)
+
+        batch_size = 1000
+        for i in range(0, len(params_list), batch_size):
+            batch = params_list[i : i + batch_size]
+            result = self.db.execute(insert_stmt, batch)
+            inserted += max(int(result.rowcount or 0), 0)
         self.db.commit()
         return inserted
 

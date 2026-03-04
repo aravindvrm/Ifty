@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { EntitySearchInput } from "@/components/entity-search-input";
+import { TickerIcon } from "@/components/ticker-icon";
 import { searchSecurities } from "@/lib/api";
 
 type Props = {
@@ -61,9 +62,10 @@ export default async function SecuritySearchPage({ searchParams }: Props) {
                         <Link
                           prefetch={false}
                           href={`/security/${encodeURIComponent(row.ticker)}`}
-                          className="text-accentBlue hover:text-white"
+                          className="inline-flex items-center gap-2 text-accentBlue hover:text-white"
                         >
-                          {row.ticker}
+                          <TickerIcon ticker={row.ticker} label={row.security_name ?? row.issuer_name} />
+                          <span>{row.ticker}</span>
                         </Link>
                       ) : (
                         "-"

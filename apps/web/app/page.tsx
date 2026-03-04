@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Sparkline } from "@/components/charts";
+import { TickerIcon } from "@/components/ticker-icon";
 import { getHomeOverview } from "@/lib/api";
 import { fmtNumber, fmtPct, fmtUsd } from "@/lib/format";
 
@@ -157,9 +158,10 @@ export default async function HomePage() {
                         <div className="flex items-center justify-between gap-2">
                           <Link
                             href={`/security/${encodeURIComponent(row.ticker ?? "")}`}
-                            className="truncate text-sm font-medium text-accentBlue hover:text-white"
+                            className="inline-flex min-w-0 items-center gap-2 truncate text-sm font-medium text-accentBlue hover:text-white"
                           >
-                            {row.ticker ?? row.security_name ?? `Security ${row.security_id}`}
+                            <TickerIcon ticker={row.ticker} label={row.security_name} />
+                            <span className="truncate">{row.ticker ?? row.security_name ?? `Security ${row.security_id}`}</span>
                           </Link>
                           <span className={`text-xs font-medium ${toneClass(row.net_value_change_usd)}`}>
                             {fmtSignedUsd(row.net_value_change_usd)}
@@ -195,9 +197,13 @@ export default async function HomePage() {
                   {overview.largest_new_stake_30d.ticker ? (
                     <Link
                       href={`/security/${encodeURIComponent(overview.largest_new_stake_30d.ticker)}`}
-                      className="text-accentBlue hover:text-white"
+                      className="inline-flex items-center gap-2 text-accentBlue hover:text-white"
                     >
-                      {overview.largest_new_stake_30d.ticker}
+                      <TickerIcon
+                        ticker={overview.largest_new_stake_30d.ticker}
+                        label={overview.largest_new_stake_30d.security_display}
+                      />
+                      <span>{overview.largest_new_stake_30d.ticker}</span>
                     </Link>
                   ) : (
                     overview.largest_new_stake_30d.security_display ?? "-"

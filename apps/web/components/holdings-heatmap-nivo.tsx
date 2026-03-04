@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ResponsiveTreeMap } from "@nivo/treemap";
 
 import { fmtNumber, fmtUsdThousands } from "@/lib/format";
+import { TickerIcon } from "@/components/ticker-icon";
 
 import type { HoldingsHeatmapProps } from "./charts";
 
@@ -11,6 +12,7 @@ type NivoLeaf = {
   id: string;
   name: string;
   label: string;
+  symbol: string | null;
   is_full_name: boolean;
   value: number;
   color: string;
@@ -139,10 +141,14 @@ function NivoNode({ node }: any) {
     return null;
   }
   const label = String(node.data?.label ?? "");
+  const symbol = String(node.data?.symbol ?? "").trim().toUpperCase();
   const isFullName = Boolean(node.data?.is_full_name);
   const valueLabel = String(node.data?.valueLabel ?? "");
   const showLabel = width >= 28 && height >= 22;
   const showValue = width >= 96 && height >= 56;
+  const showIcon = Boolean(symbol) && width >= 92 && height >= 56;
+  const iconSize = clamp(14, Math.round(Math.min(width, height) * 0.22), 22);
+  const iconY = Math.max(4, Math.round(height * 0.08));
   const base = Math.min(width, height);
   let fontSizeLabel = isFullName
     ? clamp(8, Math.round(base * 0.18), 16)
@@ -162,9 +168,9 @@ function NivoNode({ node }: any) {
   const showLabelLines = showLabel && finalLabelLines.length > 0;
   const fontSizeValue = clamp(8, Math.round(fontSizeLabel * 0.62), 13);
   const lineHeight = Math.round(fontSizeLabel * 1.04);
-  const labelStartY = showValue
-    ? height * 0.38 - ((finalLabelLines.length - 1) * lineHeight) / 2
-    : height * 0.5 - ((finalLabelLines.length - 1) * lineHeight) / 2;
+  const labelCenterYBase = showValue ? height * 0.38 : height * 0.5;
+  const labelCenterY = showIcon ? labelCenterYBase + iconSize * 0.44 + 4 : labelCenterYBase;
+  const labelStartY = labelCenterY - ((finalLabelLines.length - 1) * lineHeight) / 2;
   const clipId = `tile-clip-${String(node.id).replace(/[^a-zA-Z0-9_-]/g, "")}`;
 
   return (
@@ -181,6 +187,20 @@ function NivoNode({ node }: any) {
         stroke="rgba(226, 232, 240, 0.24)"
         strokeWidth={1}
       />
+      {showIcon ? (
+        <foreignObject
+          x={width / 2 - iconSize / 2}
+          y={iconY}
+          width={iconSize}
+          height={iconSize}
+          clipPath={`url(#${clipId})`}
+          style={{ pointerEvents: "none" }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <TickerIcon ticker={symbol} label={String(node.data?.name ?? label)} size={iconSize} />
+          </div>
+        </foreignObject>
+      ) : null}
       {showLabelLines ? (
         <text
           x={width / 2}
@@ -277,6 +297,7 @@ export function HoldingsHeatmapNivo({
         id: String(point.id),
         name: point.name,
         label,
+        symbol: point.symbol ? String(point.symbol).toUpperCase() : null,
         is_full_name: isFullName,
         value: Number(point.size),
         color: tileFill(Number(point.size), deltaValue, maxSize, maxAbsDelta),

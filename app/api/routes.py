@@ -366,11 +366,11 @@ def _manager_prior_comparison_filing(
     curr_total_raw_value: float,
 ):
     target_prev_period_end = _previous_quarter_end(latest_period_end_date)
-    if not target_prev_period_end:
-        return None
     min_rows = max(1, int(curr_positions_count * 0.20))
     min_total_raw = curr_total_raw_value * 0.20 if curr_total_raw_value > 0 else 0.0
-    candidate = db.execute(
+    candidates = [
+        dict(x)
+        for x in db.execute(
         text(
             """
             WITH prior AS (
@@ -391,25 +391,50 @@ def _manager_prior_comparison_filing(
               WHERE f.manager_id = :manager_id
                 AND f.form_type IN ('13F-HR', '13F-HR/A')
                 AND f.period_end_date IS NOT NULL
-                AND f.period_end_date = :target_prev_period_end
+                AND f.period_end_date < :latest_period_end_date
               GROUP BY f.filing_id, f.period_end_date, f.filed_at, f.form_type, f.accession_no
             )
             SELECT filing_id, period_end_date, filed_at, form_type, accession_no, mapped_rows, total_raw
             FROM prior
-            WHERE mapped_rows >= :min_rows
-              AND total_raw >= :min_total_raw
             ORDER BY period_end_date DESC, COALESCE(filed_at, '') DESC, accession_no DESC
-            LIMIT 1
+            LIMIT 16
             """
         ),
         {
             "manager_id": manager_id,
-            "target_prev_period_end": target_prev_period_end,
-            "min_rows": min_rows,
-            "min_total_raw": min_total_raw,
+            "latest_period_end_date": latest_period_end_date,
         },
-    ).mappings().first()
-    return candidate
+        ).mappings().all()
+    ]
+    if not candidates:
+        return None
+
+    def _is_usable(candidate_row: dict) -> bool:
+        return int(candidate_row.get("mapped_rows", 0) or 0) > 0
+
+    def _is_strong(candidate_row: dict) -> bool:
+        return (
+            int(candidate_row.get("mapped_rows", 0) or 0) >= min_rows
+            and float(candidate_row.get("total_raw", 0.0) or 0.0) >= min_total_raw
+        )
+
+    if target_prev_period_end:
+        for row in candidates:
+            if str(row.get("period_end_date")) == target_prev_period_end and _is_strong(row):
+                return row
+        for row in candidates:
+            if str(row.get("period_end_date")) == target_prev_period_end and _is_usable(row):
+                return row
+
+    for row in candidates:
+        if _is_strong(row):
+            return row
+
+    for row in candidates:
+        if _is_usable(row):
+            return row
+
+    return None
 
 
 @router.get("/health")
@@ -1409,6 +1434,7 @@ def manager_page(
 
     curr_filing_id = int(latest_filing["filing_id"])
     latest_date = str(latest_filing["period_end_date"])
+    target_prev_period_end = _previous_quarter_end(latest_date)
     key_expr = "COALESCE(NULLIF(UPPER(REPLACE(REPLACE(TRIM(cusip_raw), '-', ''), ' ', '')), ''), 'SID:' || CAST(security_id AS TEXT))"
 
     top_positions_raw = db.execute(
@@ -1505,6 +1531,7 @@ def manager_page(
     exited_positions: list[dict] = []
     top_buys: list[dict] = []
     top_sells: list[dict] = []
+    delta_by_security_id_raw: dict[int, float] = {}
     metrics: dict = {
         "turnover_ratio": None,
         "top10_concentration_pct": (top10_curr_raw / total_curr_raw) if total_curr_raw > 0 else 0.0,
@@ -1512,6 +1539,8 @@ def manager_page(
         "exited_positions_count": 0,
         "total_value_current": total_curr_usd,
         "total_value_previous": 0.0,
+        "comparison_quarter": None,
+        "comparison_method": None,
     }
 
     prev_filing = _manager_prior_comparison_filing(
@@ -1818,6 +1847,33 @@ def manager_page(
                 value_to_usd_multiplier=value_to_usd_multiplier,
             )
 
+        for row_dict in deltas:
+            security_id_raw = row_dict.get("security_id")
+            if security_id_raw is None:
+                continue
+            try:
+                security_id_int = int(security_id_raw)
+            except Exception:
+                continue
+            delta_by_security_id_raw[security_id_int] = (
+                delta_by_security_id_raw.get(security_id_int, 0.0) + float(row_dict.get("delta_val") or 0.0)
+            )
+
+        for row_dict in top_positions:
+            security_id_raw = row_dict.get("security_id")
+            qoq_delta_k = None
+            if security_id_raw is not None:
+                try:
+                    security_id_int = int(security_id_raw)
+                    if security_id_int in delta_by_security_id_raw:
+                        qoq_delta_k = _raw_value_to_usd_thousands(
+                            raw_value=float(delta_by_security_id_raw[security_id_int]),
+                            value_to_usd_multiplier=value_to_usd_multiplier,
+                        )
+                except Exception:
+                    qoq_delta_k = None
+            row_dict["qoq_delta_value_usd_thousands"] = qoq_delta_k
+
         metrics = {
             "turnover_ratio": turnover,
             "top10_concentration_pct": (top10_curr / total_curr) if total_curr > 0 else 0,
@@ -1825,7 +1881,17 @@ def manager_page(
             "exited_positions_count": int((counts or {}).get("exited_count", 0) or 0),
             "total_value_current": total_curr * value_to_usd_multiplier,
             "total_value_previous": total_prev * value_to_usd_multiplier,
+            "comparison_quarter": prev_date,
+            "comparison_method": (
+                "exact_previous_quarter"
+                if target_prev_period_end and prev_date == target_prev_period_end
+                else "latest_available_prior"
+            ),
         }
+
+    if not prev_filing:
+        for row_dict in top_positions:
+            row_dict["qoq_delta_value_usd_thousands"] = None
 
     return {
         "manager": dict(row),

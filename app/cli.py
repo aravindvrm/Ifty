@@ -191,6 +191,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Target top-N managers by SEC 13F table value.",
     )
     seed_top_aum.add_argument("--limit", type=int, default=40, help="Per-manager max matching forms to ingest for missing CIKs.")
+    seed_top_aum.add_argument(
+        "--min-history-quarters",
+        type=int,
+        default=2,
+        help="Minimum distinct 13F quarters required per selected manager before considering coverage sufficient.",
+    )
     seed_top_aum.add_argument("--include-13dg", action="store_true", default=False)
     seed_top_aum.add_argument(
         "--dataset-url",
@@ -735,6 +741,7 @@ def _prune_below_aum(top_n: int) -> None:
 def _seed_top_aum(
     top_n: int,
     limit: int,
+    min_history_quarters: int,
     include_13dg: bool,
     dataset_url: str,
     out_path: str,
@@ -768,6 +775,33 @@ def _seed_top_aum(
     out_file.write_text("\n".join(target_ciks) + ("\n" if target_ciks else ""), encoding="utf-8")
 
     with Session(bind=engine) as db:
+        history_rows = db.execute(
+            text(
+                """
+                SELECT
+                  m.cik AS cik,
+                  COUNT(DISTINCT f.period_end_date) FILTER (
+                    WHERE f.form_type IN ('13F-HR', '13F-HR/A')
+                  ) AS qtr_count
+                FROM managers m
+                LEFT JOIN filings f ON f.manager_id = m.manager_id
+                WHERE m.cik IS NOT NULL
+                  AND m.cik IN :target_ciks
+                GROUP BY m.cik
+                """
+            ).bindparams(bindparam("target_ciks", expanding=True)),
+            {"target_ciks": target_ciks or ["0000000000"]},
+        ).mappings().all()
+        existing = {str(x["cik"]) for x in history_rows if x and x.get("cik")}
+        undercovered = {
+            str(x["cik"])
+            for x in history_rows
+            if x and x.get("cik") and int(x.get("qtr_count") or 0) < max(1, int(min_history_quarters))
+        }
+        missing = [c for c in target_ciks if c not in existing]
+        backfill = [c for c in target_ciks if c in undercovered]
+        to_ingest = [*missing, *[c for c in backfill if c not in set(missing)]]
+
         existing_rows = db.execute(
             text("SELECT cik FROM managers WHERE cik IS NOT NULL AND cik IN :target_ciks").bindparams(
                 bindparam("target_ciks", expanding=True)
@@ -775,7 +809,6 @@ def _seed_top_aum(
             {"target_ciks": target_ciks or ["0000000000"]},
         ).all()
         existing = {str(x[0]) for x in existing_rows if x and x[0]}
-        missing = [c for c in target_ciks if c not in existing]
 
         client = SecClient(session=session, limiter=limiter, db=db)
         svc_13f = Sec13FIngestionService(db=db, sec_client=client)
@@ -784,7 +817,7 @@ def _seed_top_aum(
         total_filings = 0
         total_holdings = 0
         total_events = 0
-        for cik in missing:
+        for cik in to_ingest:
             r13f = svc_13f.ingest_for_cik(cik=cik, limit=limit)
             total_filings += r13f.filings_upserted
             total_holdings += r13f.holdings_inserted
@@ -796,7 +829,8 @@ def _seed_top_aum(
     print(
         "seed_top_aum_selected "
         f"dataset_url={selected_dataset_url} top_n={top_n} selected={len(target_ciks)} "
-        f"existing={len(existing)} missing={len(missing)} out={out_file}"
+        f"existing={len(existing)} missing={len(missing)} undercovered={len(backfill)} "
+        f"to_ingest={len(to_ingest)} min_history_quarters={max(1, int(min_history_quarters))} out={out_file}"
     )
     print(
         f"seed_top_aum_ingest filings_upserted={total_filings} "
@@ -1671,6 +1705,7 @@ def main() -> None:
         _seed_top_aum(
             top_n=args.top_n,
             limit=args.limit,
+            min_history_quarters=args.min_history_quarters,
             include_13dg=args.include_13dg,
             dataset_url=args.dataset_url,
             out_path=args.out,

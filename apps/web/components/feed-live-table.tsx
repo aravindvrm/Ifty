@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 import { get13DGFeed, type Feed13DGResponse } from "@/lib/api";
+import { TickerIcon } from "@/components/ticker-icon";
 
 type FeedRow = Feed13DGResponse["rows"][number];
 const ALLOWED_EVENT_TYPES = ["NEW_5PCT", "EXIT_5PCT", "AMENDMENT_UP", "AMENDMENT_DOWN", "OTHER"] as const;
@@ -207,8 +208,9 @@ export function FeedLiveTable({
                   </td>
                   <td className="px-3 py-2">
                     {row.ticker ? (
-                      <Link href={`/security/${encodeURIComponent(row.ticker)}`} className="text-accentBlue hover:text-white">
-                        {row.ticker}
+                      <Link href={`/security/${encodeURIComponent(row.ticker)}`} className="inline-flex items-center gap-2 text-accentBlue hover:text-white">
+                        <TickerIcon ticker={row.ticker} label={displaySecurity(row)} />
+                        <span>{row.ticker}</span>
                       </Link>
                     ) : (
                       displaySecurity(row)

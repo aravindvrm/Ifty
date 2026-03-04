@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Dot, TrendingDown, TrendingUp } from "lucide-react";
 
 import { get13DGFeed, type Feed13DGResponse } from "@/lib/api";
+import { TickerIcon } from "@/components/ticker-icon";
 
 type FeedRow = Feed13DGResponse["rows"][number];
 
@@ -92,8 +93,9 @@ export function TopLiveTape({ className }: { className?: string }) {
               </span>
               <span className="feed-ticker-top-security">
                 {row.ticker ? (
-                  <Link href={`/security/${encodeURIComponent(row.ticker)}`} className="text-accentBlue hover:text-white">
-                    {row.ticker}
+                  <Link href={`/security/${encodeURIComponent(row.ticker)}`} className="inline-flex items-center gap-1.5 text-accentBlue hover:text-white">
+                    <TickerIcon ticker={row.ticker} label={row.security_name ?? row.security_display ?? row.ticker} size={18} />
+                    <span>{row.ticker}</span>
                   </Link>
                 ) : (
                   row.security_display || row.security_name || row.issuer_name_raw || "-"

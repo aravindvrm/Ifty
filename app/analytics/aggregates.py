@@ -372,6 +372,19 @@ class AggregateRefreshService:
         return int(result.rowcount or 0)
 
     def refresh_all(self) -> AggregateRefreshSummary:
-        sec_rows = self.refresh_security_quarter()
-        mgr_rows = self.refresh_manager_quarter()
-        return AggregateRefreshSummary(security_rows=sec_rows, manager_rows=mgr_rows)
+        prior_statement_timeout: str | None = None
+        if self._dialect == "postgresql":
+            prior_statement_timeout = str(self.db.execute(text("SHOW statement_timeout")).scalar() or "0")
+            self.db.execute(text("SELECT set_config('statement_timeout', '0', false)"))
+            self.db.commit()
+        try:
+            sec_rows = self.refresh_security_quarter()
+            mgr_rows = self.refresh_manager_quarter()
+            return AggregateRefreshSummary(security_rows=sec_rows, manager_rows=mgr_rows)
+        finally:
+            if self._dialect == "postgresql" and prior_statement_timeout is not None:
+                self.db.execute(
+                    text("SELECT set_config('statement_timeout', :timeout, false)"),
+                    {"timeout": prior_statement_timeout},
+                )
+                self.db.commit()

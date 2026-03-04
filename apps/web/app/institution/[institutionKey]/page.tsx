@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { HoldingsHeatmap } from "@/components/charts";
+import { TickerIcon } from "@/components/ticker-icon";
 import { getInstitution } from "@/lib/api";
 import { fmtNumber, fmtPct, fmtUsd, fmtUsdThousands } from "@/lib/format";
 
@@ -25,13 +26,20 @@ export default async function InstitutionPage({ params }: Props) {
   }
 
   const deltaBySecurityId = new Map<number, number>();
-  for (const row of institution.top_buys) {
-    const prev = deltaBySecurityId.get(row.security_id) ?? 0;
-    deltaBySecurityId.set(row.security_id, prev + Math.abs(Number(row.delta_val ?? 0)));
+  for (const position of institution.top_positions) {
+    const delta = position.qoq_delta_value_usd_thousands;
+    if (delta === null || delta === undefined) continue;
+    deltaBySecurityId.set(position.security_id, Number(delta));
   }
-  for (const row of institution.top_sells) {
-    const prev = deltaBySecurityId.get(row.security_id) ?? 0;
-    deltaBySecurityId.set(row.security_id, prev - Math.abs(Number(row.delta_val ?? 0)));
+  if (deltaBySecurityId.size === 0) {
+    for (const row of institution.top_buys) {
+      const prev = deltaBySecurityId.get(row.security_id) ?? 0;
+      deltaBySecurityId.set(row.security_id, prev + Math.abs(Number(row.delta_val ?? 0)));
+    }
+    for (const row of institution.top_sells) {
+      const prev = deltaBySecurityId.get(row.security_id) ?? 0;
+      deltaBySecurityId.set(row.security_id, prev - Math.abs(Number(row.delta_val ?? 0)));
+    }
   }
   const heatmapData = institution.top_positions.map((position) => ({
     id: position.security_id,
@@ -181,7 +189,17 @@ export default async function InstitutionPage({ params }: Props) {
               ) : (
                 institution.top_positions.map((row, idx) => (
                   <tr key={`${row.security_id}-${idx}`}>
-                    <td className="px-3 py-2">{row.issuer_name_raw ?? "Unknown"}</td>
+                    <td className="px-3 py-2">
+                      {row.ticker ? (
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <TickerIcon ticker={row.ticker} label={row.issuer_name_raw} />
+                          <span className="font-medium text-accentBlue">{row.ticker}</span>
+                          <span className="truncate text-slate-400">- {row.issuer_name_raw ?? "Unknown"}</span>
+                        </span>
+                      ) : (
+                        row.issuer_name_raw ?? "Unknown"
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right">{fmtNumber(row.shares)}</td>
                     <td className="px-3 py-2 text-right">{fmtUsdThousands(row.value_usd_thousands)}</td>
                   </tr>
