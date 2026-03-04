@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Sparkline } from "@/components/charts";
+import { TopMoversColumn } from "@/components/top-movers-column";
 import { TickerIcon } from "@/components/ticker-icon";
 import { getHomeOverview } from "@/lib/api";
 import { fmtNumber, fmtPct, fmtUsd } from "@/lib/format";
@@ -13,12 +14,6 @@ function toSpark(series: Array<{ report_date: string; value: number }>): SparkPo
     net_shares: Number(point.value ?? 0),
     net_holder_count: 0,
   }));
-}
-
-function fmtSigned(value: number, digits = 0): string {
-  const base = fmtNumber(value, digits);
-  if (value > 0) return `+${base}`;
-  return base;
 }
 
 function fmtSignedUsd(value: number): string {
@@ -146,41 +141,7 @@ export default async function HomePage() {
           </div>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
             {columns.map((column) => (
-              <div key={column.key} className="rounded-none border border-line/70 bg-black/20 p-3">
-                <h3 className="text-sm font-semibold text-slate-200">{column.title}</h3>
-                <div className="mt-3 space-y-2">
-                  {column.rows.length ? (
-                    column.rows.slice(0, 10).map((row) => (
-                      <div
-                        key={`${column.key}-${row.security_id}`}
-                        className="rounded-none border border-line/60 bg-cardSoft/50 p-2.5"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <Link
-                            href={`/security/${encodeURIComponent(row.ticker ?? "")}`}
-                            className="inline-flex min-w-0 items-center gap-2 truncate text-sm font-medium text-accentBlue hover:text-white"
-                          >
-                            <TickerIcon ticker={row.ticker} label={row.security_name} />
-                            <span className="truncate">{row.ticker ?? row.security_name ?? `Security ${row.security_id}`}</span>
-                          </Link>
-                          <span className={`text-xs font-medium ${toneClass(row.net_value_change_usd)}`}>
-                            {fmtSignedUsd(row.net_value_change_usd)}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-                          <span>Net holders</span>
-                          <span className={toneClass(row.net_holder_count)}>{fmtSigned(row.net_holder_count, 0)}</span>
-                        </div>
-                        <div className="mt-2 h-9 rounded-none border border-line/60 bg-black/25 px-1">
-                          <Sparkline data={row.series as SparkPoint[]} />
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-slate-500">No eligible securities for this view.</p>
-                  )}
-                </div>
-              </div>
+              <TopMoversColumn key={column.key} title={column.title} columnKey={column.key} rows={column.rows} />
             ))}
           </div>
         </article>

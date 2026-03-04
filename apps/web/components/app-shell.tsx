@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Sixtyfour_Convergence } from "next/font/google";
 import { useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -30,6 +31,12 @@ const primaryNav: NavItem[] = [
   { href: "/institution", label: "Institutions", icon: Building2 },
   { href: "/ops", label: "Operations", icon: Settings },
 ];
+
+const iftyWordmarkFont = Sixtyfour_Convergence({
+  subsets: ["latin"],
+  weight: "400",
+  display: "swap",
+});
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -92,17 +99,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <header className="sticky top-0 z-20 border-b border-line/80 bg-black">
             <div className="flex h-16 items-center px-4 md:px-6">
               <div className="flex w-full items-center gap-3">
-                <TopLiveTape className="hidden min-w-0 flex-1 lg:block" />
-                <EntitySearchInput
-                  placeholder="Search securities, institutions, filings..."
-                  fallbackPath="/security"
-                  showIcon
-                  className="relative w-full max-w-xl"
-                  inputClassName="w-full rounded-none border border-line/80 bg-card/70 py-1.5 pl-9 pr-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70"
-                  dropdownClassName="absolute left-0 right-0 top-[calc(100%+8px)] z-30 overflow-hidden rounded-none border border-line/80 bg-[#02050c] shadow-panel"
-                />
-                <div className="inline-flex items-center px-1 py-1.5">
-                  <span className="text-xl font-semibold tracking-wide text-slate-100">Ifty</span>
+                <TopLiveTape className="hidden min-w-0 flex-1 md:block" />
+                <div className="ml-auto flex min-w-0 items-center gap-3">
+                  <EntitySearchInput
+                    placeholder="Search securities, institutions, filings..."
+                    fallbackPath="/security"
+                    showIcon
+                    className="relative w-[17rem] sm:w-[19rem] md:w-[22rem] lg:w-[24rem]"
+                    inputClassName="w-full rounded-none border border-line/80 bg-card/70 py-1.5 pl-9 pr-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70"
+                    dropdownClassName="absolute left-0 right-0 top-[calc(100%+8px)] z-30 overflow-hidden rounded-none border border-line/80 bg-[#02050c] shadow-panel"
+                  />
+                  <div className="inline-flex items-center px-1 py-1.5">
+                    <span className={`${iftyWordmarkFont.className} text-2xl tracking-wide text-slate-100`}>Ifty</span>
+                  </div>
                 </div>
               </div>
             </div>

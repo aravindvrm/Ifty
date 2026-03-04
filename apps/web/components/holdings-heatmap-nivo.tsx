@@ -335,7 +335,6 @@ export function HoldingsHeatmapNivo({
           enableLabel={false}
           colors={(node: any) => String(node.data?.color ?? "#0ea5e9")}
           colorBy="id"
-          borderRadius={0}
           borderWidth={1}
           borderColor={{ from: "color", modifiers: [["darker", 0.55]] }}
           isInteractive
