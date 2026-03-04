@@ -10,16 +10,17 @@ export default async function OpsPage() {
     [universe, usage, pipeline] = await Promise.all([getInstitutionUniverse(300), getApiUsage(7, 100), getPipelineRunLatest()]);
   } catch (error) {
     return (
-      <div className="card">
-        <h1 className="page-title">Ops Console</h1>
-        <p className="page-subtitle">Failed to load ops data.</p>
-        <pre>{String(error)}</pre>
-      </div>
+      <section className="rounded-2xl border border-line/80 bg-card/80 p-6 shadow-panel">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Ops Console</h1>
+        <p className="mt-2 text-sm text-slate-400">Failed to load ops data.</p>
+        <pre className="mt-3 overflow-auto rounded-xl border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
+          {String(error)}
+        </pre>
+      </section>
     );
   }
 
   const current = pipeline.current;
-  const currentMetrics = (current?.metrics ?? {}) as Record<string, unknown>;
   const latestCountsEvent =
     [...pipeline.events].reverse().find((event) => {
       const m = (event.metrics ?? {}) as Record<string, unknown>;
@@ -32,122 +33,122 @@ export default async function OpsPage() {
     {};
 
   return (
-    <div className="stack">
-      <div className="card">
-        <h1 className="page-title">Ops Console</h1>
-        <p className="page-subtitle">
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-line/80 bg-card/80 p-6 shadow-panel">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Ops Console</h1>
+        <p className="mt-2 text-sm text-slate-400">
           Institution universe and API usage telemetry (last 7 days). This is the control plane for scoped ingestion.
         </p>
-      </div>
+      </section>
 
-      <div className="card">
-        <h3>Automated Pipeline (CLI)</h3>
-        <pre>
-python -m app.cli pipeline-run --top-n 300 --ingest-limit 20 --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000
+      <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+        <h2 className="text-lg font-semibold text-slate-100">Automated Pipeline (CLI)</h2>
+        <pre className="mt-3 overflow-auto rounded-xl border border-line/70 bg-black/30 p-3 text-xs text-slate-300">
+{`python -m app.cli pipeline-run --top-n 300 --ingest-limit 20 --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000`}
         </pre>
-        <pre>
-python -m app.cli update-incremental --top-n 300 --ingest-limit 20 --resolve-quarters 6 --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000 --log-file logs/incremental.jsonl
+        <pre className="mt-2 overflow-auto rounded-xl border border-line/70 bg-black/30 p-3 text-xs text-slate-300">
+{`python -m app.cli update-incremental --top-n 300 --ingest-limit 20 --resolve-quarters 6 --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000 --log-file logs/incremental.jsonl`}
         </pre>
-      </div>
+      </section>
 
       <OpsControls />
 
-      <div className="card">
-        <h3>Latest Pipeline Run</h3>
+      <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+        <h2 className="text-lg font-semibold text-slate-100">Latest Pipeline Run</h2>
         {pipeline.run_id ? (
-          <div className="table-wrap">
-            <table className="table">
+          <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+            <table className="min-w-full divide-y divide-line/60 text-sm">
               <tbody>
                 <tr>
-                  <th>Run ID</th>
-                  <td>{pipeline.run_id}</td>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Run ID</th>
+                  <td className="px-3 py-2 text-slate-300">{pipeline.run_id}</td>
                 </tr>
                 <tr>
-                  <th>Current Stage</th>
-                  <td>{current?.stage ?? "-"}</td>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Current Stage</th>
+                  <td className="px-3 py-2 text-slate-300">{current?.stage ?? "-"}</td>
                 </tr>
                 <tr>
-                  <th>Status</th>
-                  <td>{current?.status ?? "-"}</td>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Status</th>
+                  <td className="px-3 py-2 text-slate-300">{current?.status ?? "-"}</td>
                 </tr>
                 <tr>
-                  <th>Message</th>
-                  <td>{current?.message ?? "-"}</td>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Message</th>
+                  <td className="px-3 py-2 text-slate-300">{current?.message ?? "-"}</td>
                 </tr>
                 <tr>
-                  <th>Mapped 13F</th>
-                  <td>{fmtNumber(Number(finalCounts["mapped_13f"] ?? 0))}</td>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Mapped 13F</th>
+                  <td className="px-3 py-2 text-slate-300">{fmtNumber(Number(finalCounts["mapped_13f"] ?? 0))}</td>
                 </tr>
                 <tr>
-                  <th>Unmapped 13F</th>
-                  <td>{fmtNumber(Number(finalCounts["unmapped_13f"] ?? 0))}</td>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Unmapped 13F</th>
+                  <td className="px-3 py-2 text-slate-300">{fmtNumber(Number(finalCounts["unmapped_13f"] ?? 0))}</td>
                 </tr>
                 <tr>
-                  <th>Mapped BO</th>
-                  <td>{fmtNumber(Number(finalCounts["mapped_bo"] ?? 0))}</td>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Mapped BO</th>
+                  <td className="px-3 py-2 text-slate-300">{fmtNumber(Number(finalCounts["mapped_bo"] ?? 0))}</td>
                 </tr>
                 <tr>
-                  <th>Unmapped BO</th>
-                  <td>{fmtNumber(Number(finalCounts["unmapped_bo"] ?? 0))}</td>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Unmapped BO</th>
+                  <td className="px-3 py-2 text-slate-300">{fmtNumber(Number(finalCounts["unmapped_bo"] ?? 0))}</td>
                 </tr>
               </tbody>
             </table>
           </div>
         ) : (
-          <p>No pipeline runs logged yet.</p>
+          <p className="mt-3 text-sm text-slate-400">No pipeline runs logged yet.</p>
         )}
-      </div>
+      </section>
 
-      <div className="card">
-        <h3>Institution Universe</h3>
-        <div className="table-wrap">
-          <table className="table">
+      <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+        <h2 className="text-lg font-semibold text-slate-100">Institution Universe</h2>
+        <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+          <table className="min-w-full divide-y divide-line/60 text-sm">
             <thead>
-              <tr>
-                <th>Rank</th>
-                <th>Institution</th>
-                <th>CIK</th>
-                <th>Total Value (USD)</th>
-                <th>As Of</th>
+              <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-2">Rank</th>
+                <th className="px-3 py-2">Institution</th>
+                <th className="px-3 py-2">CIK</th>
+                <th className="px-3 py-2 text-right">Total Value (USD)</th>
+                <th className="px-3 py-2">As Of</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-line/50 text-slate-300">
               {universe.rows.map((row) => (
                 <tr key={row.manager_id}>
-                  <td>{row.rank}</td>
-                  <td>{row.manager_name}</td>
-                  <td>{row.cik ?? "-"}</td>
-                  <td>{fmtNumber(row.total_value_usd ?? 0, 0)}</td>
-                  <td>{row.as_of_report_date}</td>
+                  <td className="px-3 py-2">{row.rank}</td>
+                  <td className="px-3 py-2">{row.manager_name}</td>
+                  <td className="px-3 py-2">{row.cik ?? "-"}</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(row.total_value_usd ?? 0, 0)}</td>
+                  <td className="px-3 py-2">{row.as_of_report_date}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      <div className="grid-2">
-        <div className="card">
-          <h3>API Usage Summary</h3>
-          <div className="table-wrap">
-            <table className="table">
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+          <h2 className="text-lg font-semibold text-slate-100">API Usage Summary</h2>
+          <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+            <table className="min-w-full divide-y divide-line/60 text-sm">
               <thead>
-                <tr>
-                  <th>Provider</th>
-                  <th>Calls</th>
-                  <th>OK</th>
-                  <th>Errors</th>
-                  <th>Avg Latency (ms)</th>
+                <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2">Provider</th>
+                  <th className="px-3 py-2 text-right">Calls</th>
+                  <th className="px-3 py-2 text-right">OK</th>
+                  <th className="px-3 py-2 text-right">Errors</th>
+                  <th className="px-3 py-2 text-right">Avg Latency (ms)</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-line/50 text-slate-300">
                 {usage.summary.map((row) => (
                   <tr key={row.provider}>
-                    <td>{row.provider}</td>
-                    <td>{fmtNumber(row.calls)}</td>
-                    <td>{fmtNumber(row.ok_calls)}</td>
-                    <td>{fmtNumber(row.error_calls)}</td>
-                    <td>{fmtNumber(row.avg_latency_ms, 1)}</td>
+                    <td className="px-3 py-2">{row.provider}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(row.calls)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(row.ok_calls)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(row.error_calls)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(row.avg_latency_ms, 1)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -155,32 +156,32 @@ python -m app.cli update-incremental --top-n 300 --ingest-limit 20 --resolve-qua
           </div>
         </div>
 
-        <div className="card">
-          <h3>Recent API Calls</h3>
-          <div className="table-wrap">
-            <table className="table">
+        <div className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+          <h2 className="text-lg font-semibold text-slate-100">Recent API Calls</h2>
+          <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+            <table className="min-w-full divide-y divide-line/60 text-sm">
               <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Provider</th>
-                  <th>Status</th>
-                  <th>Latency</th>
+                <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2">Time</th>
+                  <th className="px-3 py-2">Provider</th>
+                  <th className="px-3 py-2 text-right">Status</th>
+                  <th className="px-3 py-2 text-right">Latency</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-line/50 text-slate-300">
                 {usage.recent.slice(0, 30).map((row, i) => (
                   <tr key={`${row.provider}-${i}-${row.request_ts}`}>
-                    <td>{row.request_ts}</td>
-                    <td>{row.provider}</td>
-                    <td>{row.status_code ?? "-"}</td>
-                    <td>{fmtNumber(row.latency_ms ?? 0)}</td>
+                    <td className="px-3 py-2">{row.request_ts}</td>
+                    <td className="px-3 py-2">{row.provider}</td>
+                    <td className="px-3 py-2 text-right">{row.status_code ?? "-"}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(row.latency_ms ?? 0)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

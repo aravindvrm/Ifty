@@ -54,39 +54,77 @@ export function SecurityActivePositionsTable({ rows }: { rows: Row[] }) {
   }
 
   return (
-    <div className="card">
-      <h3>Active Positions</h3>
-      <div className="table-wrap">
-        <table className="table">
+    <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+      <h3 className="text-lg font-semibold text-slate-100">Active Positions</h3>
+      <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+        <table className="min-w-full divide-y divide-line/60 text-sm">
           <thead>
-            <tr>
-              <th><button type="button" onClick={() => toggleSort("manager_name")}>Institution</button></th>
-              <th><button type="button" onClick={() => toggleSort("shares")}>Shares</button></th>
-              <th><button type="button" onClick={() => toggleSort("value_usd_thousands")}>Value</button></th>
-              <th><button type="button" onClick={() => toggleSort("qoq_delta_shares")}>QoQ Δ Shares</button></th>
-              <th><button type="button" onClick={() => toggleSort("pct_manager_portfolio")}>% of Institution</button></th>
-              <th>New</th>
+            <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+              <th className="px-3 py-2">
+                <button type="button" onClick={() => toggleSort("manager_name")} className="hover:text-slate-300">
+                  Institution
+                </button>
+              </th>
+              <th className="px-3 py-2 text-right">
+                <button type="button" onClick={() => toggleSort("shares")} className="hover:text-slate-300">
+                  Shares
+                </button>
+              </th>
+              <th className="px-3 py-2 text-right">
+                <button type="button" onClick={() => toggleSort("value_usd_thousands")} className="hover:text-slate-300">
+                  Value
+                </button>
+              </th>
+              <th className="px-3 py-2 text-right">
+                <button type="button" onClick={() => toggleSort("qoq_delta_shares")} className="hover:text-slate-300">
+                  QoQ Δ Shares
+                </button>
+              </th>
+              <th className="px-3 py-2 text-right">
+                <button type="button" onClick={() => toggleSort("pct_manager_portfolio")} className="hover:text-slate-300">
+                  % of Institution
+                </button>
+              </th>
+              <th className="px-3 py-2">New</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-line/50 text-slate-300">
             {paged.map((row) => (
               <tr key={row.manager_id}>
-                <td>{row.manager_name}</td>
-                <td>{fmtNumber(row.shares)}</td>
-                <td>{fmtUsdThousands(row.value_usd_thousands)}</td>
-                <td className={row.qoq_delta_shares >= 0 ? "badge-pos" : "badge-neg"}>{fmtNumber(row.qoq_delta_shares)}</td>
-                <td>{row.pct_manager_portfolio === null ? "-" : fmtPct(row.pct_manager_portfolio)}</td>
-                <td>{row.is_new ? "NEW" : "-"}</td>
+                <td className="px-3 py-2">{row.manager_name}</td>
+                <td className="px-3 py-2 text-right">{fmtNumber(row.shares)}</td>
+                <td className="px-3 py-2 text-right">{fmtUsdThousands(row.value_usd_thousands)}</td>
+                <td className={`px-3 py-2 text-right ${row.qoq_delta_shares >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                  {fmtNumber(row.qoq_delta_shares)}
+                </td>
+                <td className="px-3 py-2 text-right">{row.pct_manager_portfolio === null ? "-" : fmtPct(row.pct_manager_portfolio)}</td>
+                <td className="px-3 py-2">{row.is_new ? "NEW" : "-"}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <div className="input-row">
-        <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={clampedPage <= 1}>Prev</button>
-        <span>Page {clampedPage} / {totalPages}</span>
-        <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={clampedPage >= totalPages}>Next</button>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setPage((p) => Math.max(1, p - 1))}
+          disabled={clampedPage <= 1}
+          className="rounded-lg border border-line/80 bg-cardSoft/80 px-2.5 py-1 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white disabled:opacity-40"
+        >
+          Prev
+        </button>
+        <span className="text-xs text-slate-500">
+          Page {clampedPage} / {totalPages}
+        </span>
+        <button
+          type="button"
+          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          disabled={clampedPage >= totalPages}
+          className="rounded-lg border border-line/80 bg-cardSoft/80 px-2.5 py-1 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white disabled:opacity-40"
+        >
+          Next
+        </button>
       </div>
-    </div>
+    </section>
   );
 }

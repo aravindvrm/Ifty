@@ -14,11 +14,13 @@ export default async function InstitutionPage({ params }: Props) {
     institution = await getInstitution(institutionKey);
   } catch (error) {
     return (
-      <div className="card">
-        <h1 className="page-title">Institution {institutionKey}</h1>
-        <p className="page-subtitle">Failed to load institution data.</p>
-        <pre>{String(error)}</pre>
-      </div>
+      <section className="rounded-2xl border border-line/80 bg-card/80 p-6 shadow-panel">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Institution {institutionKey}</h1>
+        <p className="mt-2 text-sm text-slate-400">Failed to load institution data.</p>
+        <pre className="mt-3 overflow-auto rounded-xl border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
+          {String(error)}
+        </pre>
+      </section>
     );
   }
 
@@ -40,35 +42,48 @@ export default async function InstitutionPage({ params }: Props) {
   }));
 
   return (
-    <div className="stack">
-      <div className="card">
-        <h1 className="page-title">Institution: {institution.manager.manager_name}</h1>
-        <p className="page-subtitle">CIK {institution.manager.cik} • Latest quarter {institution.latest_quarter ?? "-"}</p>
-        <div className="input-row">
-          <Link href="/institution">Back to institution directory</Link>
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-line/80 bg-card/80 p-6 shadow-panel">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-100">
+              Institution: {institution.manager.manager_name}
+            </h1>
+            <p className="mt-2 text-sm text-slate-400">
+              CIK {institution.manager.cik} • Latest quarter {institution.latest_quarter ?? "-"}
+            </p>
+          </div>
+          <div className="flex justify-start lg:justify-end">
+            <Link
+              href="/institution"
+              className="rounded-xl border border-line/80 bg-cardSoft/80 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white"
+            >
+              Back to institution directory
+            </Link>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div className="metric-row">
-        <div className="metric">
-          <div className="label">Turnover</div>
-          <div className="value">{fmtPct(institution.metrics.turnover_ratio)}</div>
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-xl border border-line/80 bg-card/70 p-4">
+          <div className="text-xs text-slate-500">Turnover</div>
+          <div className="mt-1 text-xl font-semibold text-slate-100">{fmtPct(institution.metrics.turnover_ratio)}</div>
         </div>
-        <div className="metric">
-          <div className="label">Top 10 Concentration</div>
-          <div className="value">{fmtPct(institution.metrics.top10_concentration_pct)}</div>
+        <div className="rounded-xl border border-line/80 bg-card/70 p-4">
+          <div className="text-xs text-slate-500">Top 10 Concentration</div>
+          <div className="mt-1 text-xl font-semibold text-slate-100">{fmtPct(institution.metrics.top10_concentration_pct)}</div>
         </div>
-        <div className="metric">
-          <div className="label">New / Exited Positions</div>
-          <div className="value">
+        <div className="rounded-xl border border-line/80 bg-card/70 p-4">
+          <div className="text-xs text-slate-500">New / Exited Positions</div>
+          <div className="mt-1 text-xl font-semibold text-slate-100">
             {fmtNumber(institution.metrics.new_positions_count ?? 0)} / {fmtNumber(institution.metrics.exited_positions_count ?? 0)}
           </div>
         </div>
-        <div className="metric">
-          <div className="label">Portfolio Value</div>
-          <div className="value">{fmtUsd(institution.metrics.total_value_current)}</div>
+        <div className="rounded-xl border border-line/80 bg-card/70 p-4">
+          <div className="text-xs text-slate-500">Portfolio Value</div>
+          <div className="mt-1 text-xl font-semibold text-slate-100">{fmtUsd(institution.metrics.total_value_current)}</div>
         </div>
-      </div>
+      </section>
 
       <HoldingsHeatmap
         title="Current Position Heatmap"
@@ -83,27 +98,29 @@ export default async function InstitutionPage({ params }: Props) {
         minTiles={16}
       />
 
-      <div className="grid-2">
-        <div className="card">
-          <h3>Top Buys QoQ</h3>
-          <div className="table-wrap">
-            <table className="table">
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+          <h2 className="text-lg font-semibold text-slate-100">Top Buys QoQ</h2>
+          <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+            <table className="min-w-full divide-y divide-line/60 text-sm">
               <thead>
-                <tr>
-                  <th>Security</th>
-                  <th>Delta Value (13F k$)</th>
+                <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2">Security</th>
+                  <th className="px-3 py-2 text-right">Delta Value (13F k$)</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-line/50 text-slate-300">
                 {institution.top_buys.length === 0 ? (
                   <tr>
-                    <td colSpan={2}>No buys in current comparison window.</td>
+                    <td colSpan={2} className="px-3 py-4 text-center text-sm text-slate-500">
+                      No buys in current comparison window.
+                    </td>
                   </tr>
                 ) : (
                   institution.top_buys.map((row, idx) => (
                     <tr key={`${row.security_id}-${idx}`}>
-                      <td>{row.issuer_name_raw ?? "Unknown"}</td>
-                      <td className="badge-pos">{fmtUsdThousands(row.delta_val)}</td>
+                      <td className="px-3 py-2">{row.issuer_name_raw ?? "Unknown"}</td>
+                      <td className="px-3 py-2 text-right text-emerald-300">{fmtUsdThousands(row.delta_val)}</td>
                     </tr>
                   ))
                 )}
@@ -112,26 +129,28 @@ export default async function InstitutionPage({ params }: Props) {
           </div>
         </div>
 
-        <div className="card">
-          <h3>Top Sells QoQ</h3>
-          <div className="table-wrap">
-            <table className="table">
+        <div className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+          <h2 className="text-lg font-semibold text-slate-100">Top Sells QoQ</h2>
+          <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+            <table className="min-w-full divide-y divide-line/60 text-sm">
               <thead>
-                <tr>
-                  <th>Security</th>
-                  <th>Delta Value (13F k$)</th>
+                <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2">Security</th>
+                  <th className="px-3 py-2 text-right">Delta Value (13F k$)</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-line/50 text-slate-300">
                 {institution.top_sells.length === 0 ? (
                   <tr>
-                    <td colSpan={2}>No sells in current comparison window.</td>
+                    <td colSpan={2} className="px-3 py-4 text-center text-sm text-slate-500">
+                      No sells in current comparison window.
+                    </td>
                   </tr>
                 ) : (
                   institution.top_sells.map((row, idx) => (
                     <tr key={`${row.security_id}-${idx}`}>
-                      <td>{row.issuer_name_raw ?? "Unknown"}</td>
-                      <td className="badge-neg">{fmtUsdThousands(row.delta_val)}</td>
+                      <td className="px-3 py-2">{row.issuer_name_raw ?? "Unknown"}</td>
+                      <td className="px-3 py-2 text-right text-rose-300">{fmtUsdThousands(row.delta_val)}</td>
                     </tr>
                   ))
                 )}
@@ -139,37 +158,39 @@ export default async function InstitutionPage({ params }: Props) {
             </table>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="card">
-        <h3>Current Top Positions</h3>
-        <div className="table-wrap">
-          <table className="table">
+      <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+        <h2 className="text-lg font-semibold text-slate-100">Current Top Positions</h2>
+        <div className="mt-4 overflow-x-auto rounded-xl border border-line/70">
+          <table className="min-w-full divide-y divide-line/60 text-sm">
             <thead>
-              <tr>
-                <th>Security</th>
-                <th>Shares</th>
-                <th>Value</th>
+              <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-2">Security</th>
+                <th className="px-3 py-2 text-right">Shares</th>
+                <th className="px-3 py-2 text-right">Value</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-line/50 text-slate-300">
               {institution.top_positions.length === 0 ? (
                 <tr>
-                  <td colSpan={3}>No mapped positions available.</td>
+                  <td colSpan={3} className="px-3 py-4 text-center text-sm text-slate-500">
+                    No mapped positions available.
+                  </td>
                 </tr>
               ) : (
                 institution.top_positions.map((row, idx) => (
                   <tr key={`${row.security_id}-${idx}`}>
-                    <td>{row.issuer_name_raw ?? "Unknown"}</td>
-                    <td>{fmtNumber(row.shares)}</td>
-                    <td>{fmtUsdThousands(row.value_usd_thousands)}</td>
+                    <td className="px-3 py-2">{row.issuer_name_raw ?? "Unknown"}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(row.shares)}</td>
+                    <td className="px-3 py-2 text-right">{fmtUsdThousands(row.value_usd_thousands)}</td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

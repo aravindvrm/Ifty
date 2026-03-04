@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { AppShell } from "@/components/app-shell";
 
 import "./globals.css";
 
@@ -10,19 +10,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>
-        <header className="shell-header">
-          <div className="brand">Institutional Flow Tracker</div>
-          <nav>
-            <Link href="/">Home</Link>
-            <Link href="/feed">Feed</Link>
-            <Link href="/security">Security</Link>
-            <Link href="/institution">Institution</Link>
-            <Link href="/ops">Ops</Link>
-          </nav>
-        </header>
-        <main className="shell-main">{children}</main>
+    <html lang="en" className="dark">
+      <body className="min-h-screen antialiased">
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

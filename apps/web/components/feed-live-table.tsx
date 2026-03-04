@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 import { get13DGFeed, type Feed13DGResponse } from "@/lib/api";
 
@@ -10,7 +11,15 @@ const ALLOWED_EVENT_TYPES = ["NEW_5PCT", "EXIT_5PCT", "AMENDMENT_UP", "AMENDMENT
 type AllowedEventType = (typeof ALLOWED_EVENT_TYPES)[number];
 
 function toEventClass(eventType: string): string {
-  return `event-chip event-${(eventType || "").toLowerCase().replace(/_/g, "-")}`;
+  const value = (eventType || "").toUpperCase();
+  const base = "inline-flex rounded-full border px-2 py-0.5 text-[11px]";
+  if (value === "NEW_5PCT" || value === "AMENDMENT_UP") {
+    return `${base} border-emerald-400/40 bg-emerald-400/10 text-emerald-300`;
+  }
+  if (value === "EXIT_5PCT" || value === "AMENDMENT_DOWN") {
+    return `${base} border-rose-400/40 bg-rose-400/10 text-rose-300`;
+  }
+  return `${base} border-slate-500/50 bg-slate-500/10 text-slate-300`;
 }
 
 function displaySecurity(row: FeedRow): string {
@@ -28,9 +37,6 @@ export function FeedLiveTable({
   const [eventType, setEventType] = useState("ALL");
   const [formType, setFormType] = useState("ALL");
   const [windowDays, setWindowDays] = useState("90");
-  const [mappedOnly, setMappedOnly] = useState(true);
-  const [includeOther, setIncludeOther] = useState(false);
-  const [includeLowQuality, setIncludeLowQuality] = useState(false);
   const [liveRows, setLiveRows] = useState<FeedRow[]>(rows);
   const [liveError, setLiveError] = useState<string | null>(loadError ?? null);
   const [loading, setLoading] = useState(false);
@@ -72,9 +78,9 @@ export function FeedLiveTable({
         const response = await get13DGFeed({
           limitN: 2000,
           days: Number.isFinite(days) && days > 0 ? days : 3650,
-          includeOther,
-          mappedOnly,
-          includeLowQuality,
+          includeOther: false,
+          mappedOnly: true,
+          includeLowQuality: false,
           eventType: selectedEventType,
           formType: formType === "ALL" ? undefined : formType,
           q: search.trim() || undefined
@@ -94,77 +100,75 @@ export function FeedLiveTable({
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [search, eventType, formType, windowDays, mappedOnly, includeOther, includeLowQuality]);
+  }, [search, eventType, formType, windowDays]);
 
   return (
     <>
-      <div className="feed-controls">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
         <input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search ticker, security, institution, CUSIP..."
-          className="feed-control-input feed-control-search"
+          className="rounded-xl border border-line/80 bg-card/70 px-2.5 py-1.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70 lg:col-span-4"
         />
-        <select
-          value={eventType}
-          onChange={(event) => setEventType(event.target.value)}
-          className="feed-control-input"
-        >
-          <option value="ALL">All Events</option>
-          {eventTypes.map((value) => (
-            <option key={`event-type-${value}`} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-        <select
-          value={formType}
-          onChange={(event) => setFormType(event.target.value)}
-          className="feed-control-input"
-        >
-          <option value="ALL">All Forms</option>
-          {formTypes.map((value) => (
-            <option key={`form-type-${value}`} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-        <select
-          value={windowDays}
-          onChange={(event) => setWindowDays(event.target.value)}
-          className="feed-control-input"
-        >
-          <option value="7">Last 7D</option>
-          <option value="30">Last 30D</option>
-          <option value="90">Last 90D</option>
-          <option value="180">Last 6M</option>
-          <option value="365">Last 1Y</option>
-          <option value="ALL">All Dates</option>
-        </select>
-        <label className="feed-control-check">
-          <input type="checkbox" checked={mappedOnly} onChange={(event) => setMappedOnly(event.target.checked)} />
-          Mapped only
-        </label>
-        <label className="feed-control-check">
-          <input type="checkbox" checked={includeOther} onChange={(event) => setIncludeOther(event.target.checked)} />
-          Include OTHER
-        </label>
-        <label className="feed-control-check">
-          <input
-            type="checkbox"
-            checked={includeLowQuality}
-            onChange={(event) => setIncludeLowQuality(event.target.checked)}
-          />
-          Include Low Quality
-        </label>
+        <div className="relative lg:col-span-2">
+          <select
+            value={eventType}
+            onChange={(event) => setEventType(event.target.value)}
+            className="w-full appearance-none rounded-lg border border-line/70 bg-transparent px-2 py-1 text-xs text-slate-200 outline-none transition focus:border-accentBlue/70"
+          >
+            <option value="ALL">All Events</option>
+            {eventTypes.map((value) => (
+              <option key={`event-type-${value}`} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+        </div>
+        <div className="relative lg:col-span-2">
+          <select
+            value={formType}
+            onChange={(event) => setFormType(event.target.value)}
+            className="w-full appearance-none rounded-lg border border-line/70 bg-transparent px-2 py-1 text-xs text-slate-200 outline-none transition focus:border-accentBlue/70"
+          >
+            <option value="ALL">All Forms</option>
+            {formTypes.map((value) => (
+              <option key={`form-type-${value}`} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+        </div>
+        <div className="relative lg:col-span-2">
+          <select
+            value={windowDays}
+            onChange={(event) => setWindowDays(event.target.value)}
+            className="w-full appearance-none rounded-lg border border-line/70 bg-transparent px-2 py-1 text-xs text-slate-200 outline-none transition focus:border-accentBlue/70"
+          >
+            <option value="7">Last 7D</option>
+            <option value="30">Last 30D</option>
+            <option value="90">Last 90D</option>
+            <option value="180">Last 6M</option>
+            <option value="365">Last 1Y</option>
+            <option value="ALL">All Dates</option>
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+        </div>
+        <div className="flex items-center justify-end lg:col-span-2">
+          <span className="rounded-lg border border-line/70 bg-transparent px-2 py-1 text-[11px] text-slate-400">
+            Mode: High Quality Mapped
+          </span>
+        </div>
       </div>
 
-      <div className="feed-results-line">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-400">
         <span>
           Showing <strong>{liveRows.length.toLocaleString("en-US")}</strong> events
           {loading ? " • Updating..." : ""}
         </span>
-        {(search || eventType !== "ALL" || formType !== "ALL" || windowDays !== "90" || !mappedOnly || includeOther || includeLowQuality) && (
+        {(search || eventType !== "ALL" || formType !== "ALL" || windowDays !== "90") && (
           <button
             type="button"
             onClick={() => {
@@ -172,67 +176,69 @@ export function FeedLiveTable({
               setEventType("ALL");
               setFormType("ALL");
               setWindowDays("90");
-              setMappedOnly(true);
-              setIncludeOther(false);
-              setIncludeLowQuality(false);
             }}
+            className="rounded-lg border border-line/80 bg-card/70 px-2.5 py-1 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-slate-100"
           >
             Clear Filters
           </button>
         )}
       </div>
 
-      <div className="table-wrap">
-        <table className="table feed-table">
+      <div className="mt-3 overflow-x-auto rounded-xl border border-line/70">
+        <table className="min-w-full divide-y divide-line/60 text-sm">
           <thead>
-            <tr>
-              <th>Date</th>
-              <th>Event</th>
-              <th>Security</th>
-              <th>Institution</th>
-              <th>% Owned</th>
-              <th>Shares</th>
-              <th>Form</th>
+            <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+              <th className="px-3 py-2">Date</th>
+              <th className="px-3 py-2">Event</th>
+              <th className="px-3 py-2">Security</th>
+              <th className="px-3 py-2">Institution</th>
+              <th className="px-3 py-2 text-right">% Owned</th>
+              <th className="px-3 py-2 text-right">Shares</th>
+              <th className="px-3 py-2">Form</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-line/50 text-slate-300">
             {liveRows.length ? (
               liveRows.map((row) => (
                 <tr key={`feed-row-${row.bo_event_id}`}>
-                  <td>{row.report_date}</td>
-                  <td>
+                  <td className="px-3 py-2 text-xs text-slate-400">{row.report_date}</td>
+                  <td className="px-3 py-2">
                     <span className={toEventClass(row.event_type)}>{row.event_type}</span>
                   </td>
-                  <td>
+                  <td className="px-3 py-2">
                     {row.ticker ? (
-                      <Link href={`/security/${encodeURIComponent(row.ticker)}`}>{row.ticker}</Link>
+                      <Link href={`/security/${encodeURIComponent(row.ticker)}`} className="text-accentBlue hover:text-white">
+                        {row.ticker}
+                      </Link>
                     ) : (
                       displaySecurity(row)
                     )}
                   </td>
-                  <td>
+                  <td className="px-3 py-2">
                     {row.manager_id ? (
-                      <Link href={`/institution/${row.manager_id}`}>{row.manager_name ?? `Institution ${row.manager_id}`}</Link>
+                      <Link href={`/institution/${row.manager_id}`} className="text-accentBlue hover:text-white">
+                        {row.manager_name ?? `Institution ${row.manager_id}`}
+                      </Link>
                     ) : (
                       row.manager_name ?? "-"
                     )}
                   </td>
-                  <td>
+                  <td className="px-3 py-2 text-right">
                     {row.percent_beneficial_owned === null || row.percent_beneficial_owned === undefined
                       ? "-"
                       : `${Number(row.percent_beneficial_owned).toFixed(2)}%`}
                   </td>
-                  <td>
+                  <td className="px-3 py-2 text-right">
                     {row.shares_beneficial_owned === null || row.shares_beneficial_owned === undefined
                       ? "-"
                       : Number(row.shares_beneficial_owned).toLocaleString("en-US")}
                   </td>
-                  <td>{row.form_type}</td>
+                  <td className="px-3 py-2">{row.form_type}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={7} className="muted">
+                <td colSpan={7} className="px-3 py-4 text-center text-sm text-slate-500">
                   {liveError ? `Feed unavailable: ${liveError}` : "No events match current filters."}
                 </td>
               </tr>

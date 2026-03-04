@@ -1,33 +1,39 @@
 import Link from "next/link";
 
 import { Sparkline } from "@/components/charts";
-import { get13DGFeed, getHomeOverview } from "@/lib/api";
+import { getHomeOverview } from "@/lib/api";
 import { fmtNumber, fmtPct, fmtUsd } from "@/lib/format";
 
 type SparkPoint = { report_date: string; net_shares: number; net_holder_count: number };
 
 function toSpark(series: Array<{ report_date: string; value: number }>): SparkPoint[] {
-  return series.map((x) => ({ report_date: x.report_date, net_shares: Number(x.value ?? 0), net_holder_count: 0 }));
+  return series.map((point) => ({
+    report_date: point.report_date,
+    net_shares: Number(point.value ?? 0),
+    net_holder_count: 0,
+  }));
 }
 
-function fmtSigned(n: number, digits = 0): string {
-  const base = fmtNumber(n, digits);
-  if (n > 0) return `+${base}`;
+function fmtSigned(value: number, digits = 0): string {
+  const base = fmtNumber(value, digits);
+  if (value > 0) return `+${base}`;
   return base;
 }
 
-function fmtSignedUsd(n: number): string {
-  if (n > 0) return `+${fmtUsd(n)}`;
-  return fmtUsd(n);
+function fmtSignedUsd(value: number): string {
+  if (value > 0) return `+${fmtUsd(value)}`;
+  return fmtUsd(value);
+}
+
+function toneClass(value: number): string {
+  return value >= 0 ? "text-emerald-300" : "text-rose-300";
 }
 
 const TICKER_PATTERN = /^[A-Z]{1,6}(?:\.[A-Z]{1,2})?$/;
-const DERIVATIVE_NAME_PATTERN = /\b(?:OPTION|WARRANT|RIGHT|NOTE|BOND|DEBT|PFD|PREFERRED)\b|(?:\b\d+(?:\.\d+)?\s+\d{2}\/\d{2}\/\d{2}\b)/i;
+const DERIVATIVE_NAME_PATTERN =
+  /\b(?:OPTION|WARRANT|RIGHT|NOTE|BOND|DEBT|PFD|PREFERRED)\b|(?:\b\d+(?:\.\d+)?\s+\d{2}\/\d{2}\/\d{2}\b)/i;
 
-function isDisplayableMover(row: {
-  ticker: string | null;
-  security_name: string | null;
-}) {
+function isDisplayableMover(row: { ticker: string | null; security_name: string | null }) {
   const ticker = (row.ticker ?? "").trim().toUpperCase();
   if (!TICKER_PATTERN.test(ticker)) {
     return false;
@@ -41,27 +47,17 @@ function isDisplayableMover(row: {
 
 export default async function HomePage() {
   let overview;
-  let feedRows: Awaited<ReturnType<typeof get13DGFeed>>["rows"] = [];
-  let feedError: string | null = null;
   try {
-    const [homeOverview, feed] = await Promise.all([
-      getHomeOverview({ quartersN: 8, topN: 10, scatterN: 0 }),
-      get13DGFeed({ days: 180, limitN: 18, includeOther: false, mappedOnly: false }).catch((error: unknown) => {
-        feedError = String(error);
-        return null;
-      })
-    ]);
-    overview = homeOverview;
-    feedRows = feed?.rows ?? [];
+    overview = await getHomeOverview({ quartersN: 8, topN: 10, scatterN: 0 });
   } catch (error) {
     return (
-      <div className="stack">
-        <div className="card">
-          <h1 className="page-title">Institutional Flow Tracker</h1>
-          <p className="page-subtitle">Failed to load homepage analytics.</p>
-          <pre>{String(error)}</pre>
-        </div>
-      </div>
+      <section className="rounded-2xl border border-line/80 bg-card/70 p-6 shadow-panel">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Institutional Flow Dashboard</h1>
+        <p className="mt-2 text-sm text-slate-400">Failed to load homepage analytics.</p>
+        <pre className="mt-3 overflow-auto rounded-xl border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
+          {String(error)}
+        </pre>
+      </section>
     );
   }
 
@@ -70,267 +66,226 @@ export default async function HomePage() {
       title: "Breadth: Net Accumulation",
       value: fmtPct(overview.pulse.breadth_accum_pct),
       subtitle: `${fmtNumber(overview.pulse.accum_count)} of ${fmtNumber(overview.pulse.universe_count)} securities`,
-      spark: toSpark(overview.pulse_series.breadth_accum_pct)
+      spark: toSpark(overview.pulse_series.breadth_accum_pct),
     },
     {
       title: "Participation: Adders",
       value: fmtPct(overview.pulse.participation_increase_pct),
       subtitle: `${fmtNumber(overview.pulse.holders_added)} adds vs ${fmtNumber(overview.pulse.holders_trimmed)} trims`,
-      spark: toSpark(overview.pulse_series.participation_increase_pct)
+      spark: toSpark(overview.pulse_series.participation_increase_pct),
     },
     {
       title: "Net 13F Value Change QoQ",
       value: fmtSignedUsd(overview.pulse.net_value_change_usd),
       subtitle: `Latest quarter ${overview.latest_quarter ?? "-"}`,
-      spark: toSpark(overview.pulse_series.net_value_change_usd)
+      spark: toSpark(overview.pulse_series.net_value_change_usd),
+      valueClass: toneClass(overview.pulse.net_value_change_usd),
     },
-    {
-      title: "13D/G Mix (30d)",
-      value: `13D ${fmtPct(overview.pulse.bo_13d_share_30d)} / 13G ${fmtPct(overview.pulse.bo_13g_share_30d)}`,
-      subtitle: `${fmtNumber(overview.pulse.form_13d_30d)} / ${fmtNumber(overview.pulse.form_13g_30d)} unique filings`,
-      spark: toSpark(overview.pulse_series.bo_13d_share_pct)
-    }
   ];
 
   const columns = [
     { key: "accumulated", title: "Top Accumulated (QoQ)", rows: overview.top_movers.accumulated.filter(isDisplayableMover) },
     { key: "distributed", title: "Top Distributed (QoQ)", rows: overview.top_movers.distributed.filter(isDisplayableMover) },
-    { key: "new_holders", title: "Most New Holders (QoQ)", rows: overview.top_movers.new_holders.filter(isDisplayableMover) }
+    { key: "new_holders", title: "Most New Holders (QoQ)", rows: overview.top_movers.new_holders.filter(isDisplayableMover) },
   ] as const;
 
   return (
-    <div className="stack">
-      <div className="card">
-        <h1 className="page-title">Institutional Flow Pulse</h1>
-        <p className="page-subtitle">
-          Market-wide institutional positioning snapshot for {overview.latest_quarter ?? "-"}.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-line/80 bg-gradient-to-br from-card via-cardSoft to-[#0b1426] p-6 shadow-panel">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight text-slate-100">Market Pulse</h1>
+            <p className="mt-2 text-sm text-slate-400">
+              Normalized institutional breadth, participation, value-weighted flow, and 13D/G activity.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+            <div className="rounded-xl border border-line/80 bg-black/25 px-3 py-2 text-slate-300">
+              <div className="text-slate-500">Latest Quarter</div>
+              <div className="mt-1 text-sm font-semibold text-slate-100">{overview.latest_quarter ?? "-"}</div>
+            </div>
+            <div className="rounded-xl border border-line/80 bg-black/25 px-3 py-2 text-slate-300">
+              <div className="text-slate-500">Previous Quarter</div>
+              <div className="mt-1 text-sm font-semibold text-slate-100">{overview.previous_quarter ?? "-"}</div>
+            </div>
+            <div className="rounded-xl border border-line/80 bg-black/25 px-3 py-2 text-slate-300">
+              <div className="text-slate-500">Active Universe</div>
+              <div className="mt-1 text-sm font-semibold text-slate-100">
+                {fmtNumber(overview.pulse.universe_count)}
+              </div>
+            </div>
+            <div className="rounded-xl border border-line/80 bg-black/25 px-3 py-2 text-slate-300">
+              <div className="text-slate-500">Mapped Coverage</div>
+              <div className="mt-1 text-sm font-semibold text-slate-100">
+                {fmtPct(overview.trust.mapping_coverage_pct_latest_quarter)}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
-      <div className="pulse-grid">
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {pulseCards.map((card) => (
-          <div key={card.title} className="card pulse-card">
-            <div className="pulse-kicker">{card.title}</div>
-            <div className="pulse-value">{card.value}</div>
-            <div className="pulse-sub">{card.subtitle}</div>
-            <div className="pulse-spark">
+          <article key={card.title} className="rounded-2xl border border-line/80 bg-card/80 p-4 shadow-panel">
+            <div className="text-xs uppercase tracking-wide text-slate-500">{card.title}</div>
+            <div className={`mt-2 text-2xl font-semibold ${card.valueClass ?? "text-slate-100"}`}>{card.value}</div>
+            <div className="mt-1 text-xs text-slate-500">{card.subtitle}</div>
+            <div className="mt-3 h-12 rounded-lg border border-line/70 bg-black/20 p-1">
               <Sparkline data={card.spark} />
             </div>
-          </div>
+          </article>
         ))}
-      </div>
+      </section>
 
-      <div className="grid-2">
-        <div className="card">
-          <h3>Coverage & Freshness</h3>
-          <div className="kpi-grid">
-            <div>
-              <div className="muted">Latest Quarter</div>
-              <div>{overview.trust.latest_quarter_loaded ?? "-"}</div>
-            </div>
-            <div>
-              <div className="muted">Institutions in Universe</div>
-              <div>{fmtNumber(overview.trust.managers_in_universe)}</div>
-            </div>
-            <div>
-              <div className="muted">Institutions with Positions</div>
-              <div>{fmtNumber(overview.trust.managers_with_positions)}</div>
-            </div>
-            <div>
-              <div className="muted">Mapped Position Rows (Latest Quarter)</div>
-              <div>{fmtNumber(overview.trust.holdings_rows_latest_quarter)}</div>
-            </div>
-            <div>
-              <div className="muted">Mapped Analytics Coverage</div>
-              <div>{fmtPct(overview.trust.mapping_coverage_pct_latest_quarter)}</div>
-            </div>
+      <section>
+        <article className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-100">Top Movers</h2>
+            <span className="text-xs text-slate-500">Ranked by latest QoQ aggregate movement</span>
           </div>
-        </div>
-
-        <div className="card">
-          <h3>13D/G Breadth (30d)</h3>
-          <div className="kpi-grid">
-            <div>
-              <div className="muted">Unique Filers</div>
-              <div>{fmtNumber(overview.bo_activity_30d.unique_filers)}</div>
-            </div>
-            <div>
-              <div className="muted">Unique Securities</div>
-              <div>{fmtNumber(overview.bo_activity_30d.unique_securities)}</div>
-            </div>
-          </div>
-          <p className="page-subtitle">
-            Distinct beneficial owners and distinct security keys seen in the last 30 days.
-          </p>
-        </div>
-      </div>
-
-      <div className="card">
-        <h3>Largest New Stake (30d)</h3>
-        {overview.largest_new_stake_30d ? (
-          <div className="kpi-grid">
-            <div>
-              <div className="muted">Security</div>
-              <div>
-                {overview.largest_new_stake_30d.ticker ? (
-                  <Link href={`/security/${encodeURIComponent(overview.largest_new_stake_30d.ticker)}`}>
-                    {overview.largest_new_stake_30d.ticker}
-                  </Link>
-                ) : (
-                  overview.largest_new_stake_30d.security_display ?? "-"
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="muted">Institution</div>
-              <div>
-                {overview.largest_new_stake_30d.manager_id ? (
-                  <Link href={`/institution/${overview.largest_new_stake_30d.manager_id}`}>
-                    {overview.largest_new_stake_30d.manager_name ?? `Institution ${overview.largest_new_stake_30d.manager_id}`}
-                  </Link>
-                ) : (
-                  overview.largest_new_stake_30d.manager_name ?? "-"
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="muted">% Beneficial Owned</div>
-              <div>{fmtPct((overview.largest_new_stake_30d.percent_beneficial_owned ?? 0) / 100)}</div>
-            </div>
-            <div>
-              <div className="muted">Date</div>
-              <div>{overview.largest_new_stake_30d.report_date ?? "-"}</div>
-            </div>
-            <div>
-              <div className="muted">Form</div>
-              <div>{overview.largest_new_stake_30d.form_type ?? "-"}</div>
-            </div>
-          </div>
-        ) : (
-          <p className="muted">No NEW_5PCT event found in the last 30 days.</p>
-        )}
-      </div>
-
-      <div className="movers-grid">
-        {columns.map((column) => (
-          <div key={column.key} className="card">
-            <h3>{column.title}</h3>
-            <div className="table-wrap">
-              <table className="table home-movers-table">
-                <thead>
-                  <tr>
-                    <th>Security</th>
-                    <th>Net Value (QoQ)</th>
-                    <th>Net Holders</th>
-                    <th>Spark</th>
-                  </tr>
-                </thead>
-                <tbody>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            {columns.map((column) => (
+              <div key={column.key} className="rounded-xl border border-line/70 bg-black/20 p-3">
+                <h3 className="text-sm font-semibold text-slate-200">{column.title}</h3>
+                <div className="mt-3 space-y-2">
                   {column.rows.length ? (
-                    column.rows.map((row) => (
-                      <tr key={`${column.key}-${row.security_id}`}>
-                        <td>
-                          {row.ticker ? (
-                            <Link href={`/security/${encodeURIComponent(row.ticker)}`}>{row.ticker}</Link>
-                          ) : (
-                            row.security_name ?? `Security ${row.security_id}`
-                          )}
-                        </td>
-                        <td className={row.net_value_change_usd >= 0 ? "badge-pos" : "badge-neg"}>
-                          {fmtSignedUsd(row.net_value_change_usd)}
-                        </td>
-                        <td className={row.net_holder_count >= 0 ? "badge-pos" : "badge-neg"}>{fmtSigned(row.net_holder_count, 0)}</td>
-                        <td className="spark-cell">
+                    column.rows.slice(0, 10).map((row) => (
+                      <div
+                        key={`${column.key}-${row.security_id}`}
+                        className="rounded-lg border border-line/60 bg-cardSoft/50 p-2.5"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <Link
+                            href={`/security/${encodeURIComponent(row.ticker ?? "")}`}
+                            className="truncate text-sm font-medium text-accentBlue hover:text-white"
+                          >
+                            {row.ticker ?? row.security_name ?? `Security ${row.security_id}`}
+                          </Link>
+                          <span className={`text-xs font-medium ${toneClass(row.net_value_change_usd)}`}>
+                            {fmtSignedUsd(row.net_value_change_usd)}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+                          <span>Net holders</span>
+                          <span className={toneClass(row.net_holder_count)}>{fmtSigned(row.net_holder_count, 0)}</span>
+                        </div>
+                        <div className="mt-2 h-9 rounded-md border border-line/60 bg-black/25 px-1">
                           <Sparkline data={row.series as SparkPoint[]} />
-                        </td>
-                      </tr>
+                        </div>
+                      </div>
                     ))
                   ) : (
-                    <tr>
-                      <td colSpan={4} className="muted">No eligible securities for this view.</td>
-                    </tr>
+                    <p className="text-xs text-slate-500">No eligible securities for this view.</p>
                   )}
-                </tbody>
-              </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section>
+        <article className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+          <h2 className="text-lg font-semibold text-slate-100">Largest New Stake (30d)</h2>
+          {overview.largest_new_stake_30d ? (
+            <div className="mt-4 space-y-3">
+              <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+                <div className="text-xs text-slate-500">Security</div>
+                <div className="mt-1 text-sm font-medium text-slate-100">
+                  {overview.largest_new_stake_30d.ticker ? (
+                    <Link
+                      href={`/security/${encodeURIComponent(overview.largest_new_stake_30d.ticker)}`}
+                      className="text-accentBlue hover:text-white"
+                    >
+                      {overview.largest_new_stake_30d.ticker}
+                    </Link>
+                  ) : (
+                    overview.largest_new_stake_30d.security_display ?? "-"
+                  )}
+                </div>
+              </div>
+              <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+                <div className="text-xs text-slate-500">Institution</div>
+                <div className="mt-1 text-sm font-medium text-slate-100">
+                  {overview.largest_new_stake_30d.manager_id ? (
+                    <Link
+                      href={`/institution/${overview.largest_new_stake_30d.manager_id}`}
+                      className="text-accentBlue hover:text-white"
+                    >
+                      {overview.largest_new_stake_30d.manager_name ??
+                        `Institution ${overview.largest_new_stake_30d.manager_id}`}
+                    </Link>
+                  ) : (
+                    overview.largest_new_stake_30d.manager_name ?? "-"
+                  )}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+                  <div className="text-xs text-slate-500">% Beneficial Owned</div>
+                  <div className="mt-1 text-sm font-semibold text-emerald-300">
+                    {fmtPct((overview.largest_new_stake_30d.percent_beneficial_owned ?? 0) / 100)}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+                  <div className="text-xs text-slate-500">Filed Date</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-100">
+                    {overview.largest_new_stake_30d.report_date ?? "-"}
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+                <div className="text-xs text-slate-500">Form</div>
+                <div className="mt-1 text-sm font-semibold text-slate-100">
+                  {overview.largest_new_stake_30d.form_type ?? "-"}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-slate-500">No NEW_5PCT event found in the last 30 days.</p>
+          )}
+        </article>
+      </section>
+
+      <section className="rounded-2xl border border-line/80 bg-card/80 p-5 shadow-panel">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-100">Coverage & Trust</h2>
+          <span className="text-xs text-slate-500">Latest data integrity and universe coverage snapshot</span>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+            <div className="text-xs text-slate-500">Institutions in Universe</div>
+            <div className="mt-1 text-xl font-semibold text-slate-100">
+              {fmtNumber(overview.trust.managers_in_universe)}
             </div>
           </div>
-        ))}
-      </div>
-
-      <div className="card">
-        <div className="feed-header">
-          <h3>Latest 13D/G Feed</h3>
-          <Link href="/feed">View full feed</Link>
+          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+            <div className="text-xs text-slate-500">Institutions with Positions</div>
+            <div className="mt-1 text-xl font-semibold text-slate-100">
+              {fmtNumber(overview.trust.managers_with_positions)}
+            </div>
+          </div>
+          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+            <div className="text-xs text-slate-500">Mapped Rows (Latest Quarter)</div>
+            <div className="mt-1 text-xl font-semibold text-slate-100">
+              {fmtNumber(overview.trust.holdings_rows_latest_quarter)}
+            </div>
+          </div>
+          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+            <div className="text-xs text-slate-500">Mapping Coverage</div>
+            <div className="mt-1 text-xl font-semibold text-slate-100">
+              {fmtPct(overview.trust.mapping_coverage_pct_latest_quarter)}
+            </div>
+          </div>
+          <div className="rounded-xl border border-line/70 bg-black/20 p-3">
+            <div className="text-xs text-slate-500">13D/G Breadth (30d)</div>
+            <div className="mt-1 text-sm text-slate-300">
+              {fmtNumber(overview.bo_activity_30d.unique_filers)} filers /{" "}
+              {fmtNumber(overview.bo_activity_30d.unique_securities)} securities
+            </div>
+          </div>
         </div>
-        <p className="page-subtitle">Most recent mapped beneficial ownership events (latest available window).</p>
-        <div className="table-wrap">
-          <table className="table feed-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Event</th>
-                <th>Security</th>
-                <th>Institution</th>
-                <th>% Owned</th>
-                <th>Form</th>
-              </tr>
-            </thead>
-            <tbody>
-              {feedRows.length ? (
-                feedRows.map((row) => (
-                  <tr key={`home-feed-${row.bo_event_id}`}>
-                    <td>{row.report_date}</td>
-                    <td>
-                      <span className={`event-chip event-${(row.event_type || "").toLowerCase().replace(/_/g, "-")}`}>
-                        {row.event_type}
-                      </span>
-                    </td>
-                    <td>
-                      {row.ticker ? (
-                        <Link href={`/security/${encodeURIComponent(row.ticker)}`}>{row.ticker}</Link>
-                      ) : (
-                        row.security_name ?? row.issuer_name_raw ?? "-"
-                      )}
-                    </td>
-                    <td>
-                      {row.manager_id ? (
-                        <Link href={`/institution/${row.manager_id}`}>{row.manager_name ?? `Institution ${row.manager_id}`}</Link>
-                      ) : (
-                        row.manager_name ?? "-"
-                      )}
-                    </td>
-                    <td>
-                      {row.percent_beneficial_owned === null || row.percent_beneficial_owned === undefined
-                        ? "-"
-                        : `${Number(row.percent_beneficial_owned).toFixed(2)}%`}
-                    </td>
-                    <td>{row.form_type}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6} className="muted">
-                    {feedError ? `Feed unavailable: ${feedError}` : "No 13D/G events found for this window."}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="grid-2">
-        <div className="card">
-          <h3>Security Lens</h3>
-          <p>Ownership concentration, active institutional holders, and 13D/G event timeline.</p>
-          <Link href="/security">Search securities</Link>
-        </div>
-        <div className="card">
-          <h3>Institution Lens</h3>
-          <p>Current exposure heatmap, top buys/sells, turnover and concentration.</p>
-          <Link href="/institution">Browse institutions</Link>
-        </div>
-      </div>
+      </section>
     </div>
   );
 }
