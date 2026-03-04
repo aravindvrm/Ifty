@@ -1,5 +1,7 @@
 # Institutional Flow Tracker: MVP Ingestion + Resolution Workflow
 
+> Note: This document is historical workflow guidance. For current production behavior and API/schema contracts, use `docs/product_spec.md` as the source of truth.
+
 This document defines how to ingest SEC filings and resolve them into a durable security master using SQLite.
 
 ## 1) Source-of-truth and API usage policy
@@ -236,4 +238,3 @@ LIMIT :limit_n;
    - `GET /manager/{cik_or_id}`
    - `GET /screeners/accumulation`
    - `GET /screeners/new-5pct-holders`
-

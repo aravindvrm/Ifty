@@ -1,5 +1,7 @@
 # Postgres Scaling Runbook
 
+> Note: This runbook is complementary guidance. For the canonical current product/API/schema contract, see `docs/product_spec.md`.
+
 ## Goals
 - Keep resolver and aggregate jobs fast as `holdings_13f` grows.
 - Avoid full-table maintenance during recurring updates.

@@ -1,76 +1,123 @@
-# Institutional Flow Tracker (MVP backend)
+# Ifty (Institutional Flow Tracker)
 
-## Quick start
+Institutional ownership intelligence platform built on SEC 13F and 13D/G filings.
 
-1. Install dependencies (example):
+This repo contains:
+- FastAPI backend (`app/`) for ingestion, mapping, analytics, and APIs.
+- Next.js frontend (`apps/web/`) for dashboard, security/institution views, live 13D/G feed, and ops console.
+- CLI pipeline (`python -m app.cli ...`) for seeding, incremental updates, retention, and validation.
+
+## Current State (Audited)
+
+The current app surface is:
+- Dashboard (`/`) with Market Pulse KPIs, animated Top Movers columns, flow-distribution histogram, coverage/trust panel.
+- Security directory/detail (`/security`, `/security/{ticker}`) with activity breakdown, institutional heatmap, active positions, and filtered 13D/G events.
+- Institution directory/detail (`/institution`, `/institution/{id_or_cik}`) with portfolio metrics, buy/sell deltas, position heatmap.
+- 13D/G feed explorer (`/feed`) with live filtering and quality-gated mapped results.
+- Ops console (`/ops`) with job controls, universe status, pipeline run log, and API usage telemetry.
+
+Legacy route aliases still resolve:
+- `/manager`, `/manager/{managerKey}` -> institution routes
+- `/screeners` -> dashboard
+
+## Architecture
+
+### Backend
+- Framework: FastAPI (`app/main.py`)
+- DB access: SQLAlchemy + psycopg
+- Core API routes: `app/api/routes.py`
+- Ingestion services:
+  - `app/ingest/sec_13f.py`
+  - `app/ingest/sec_13dg.py`
+- Mapping/resolution:
+  - `app/resolution/security_resolver.py`
+  - `app/resolution/ticker_enrichment.py`
+  - `app/enrichment/cusip_to_ticker.py`
+- Aggregates:
+  - `app/analytics/aggregates.py`
+  - `app/analytics/splits.py`
+- Operational pipelines:
+  - `app/pipeline/universe.py`
+  - `app/pipeline/bo_feed.py`
+  - `app/pipeline/aum_seed.py`
+
+### Frontend
+- Framework: Next.js App Router (`apps/web/app`)
+- Charting: `@nivo/treemap` (heatmaps)
+- Global search: security + institution typeahead with keyboard navigation
+- Live tape and feed views backed by `/feeds/13dg`
+
+### Data Stores
+- Primary: PostgreSQL (`API_DB_URL` default in `.env.example`)
+- SQLite is still supported for local smoke/dev bootstraps.
+
+## Repo Layout
+
+- `app/`: backend API + ingestion + pipeline + CLI
+- `apps/web/`: frontend
+- `db/`: schema files (`schema.sql`, `schema_postgres.sql`)
+- `scripts/`: migration scripts
+- `seeds/`: CIK seed/discovery files
+- `docs/`: runbooks + product spec
+
+## Quick Start
+
+### 1) Environment
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
-```
-
-2. Copy env and set values:
-```bash
 cp .env.example .env
 ```
-Use repo-root `.env` as the single backend config source (`API_DB_URL`, `SEC_USER_AGENT`).
 
-3. Initialize SQLite schema:
+Set at minimum:
+- `SEC_USER_AGENT=Your Name your.email@example.com`
+- `API_DB_URL=postgresql+psycopg://flow:flow@127.0.0.1:5433/flowdb` (or SQLite URL)
+
+### 2) Start Postgres (recommended)
+
+```bash
+make pg-up
+```
+
+### 3) Provision schema
+
+For a fresh Postgres database, apply schema first:
+
+```bash
+psql postgresql://flow:flow@127.0.0.1:5433/flowdb -f db/schema_postgres.sql
+```
+
+Then run bootstrap/seeds:
+
 ```bash
 python -m app.cli init-db
 ```
 
-4. Run API:
+### 4) Run backend API
+
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
 
-5. Trigger 13F discovery+ingestion for one manager CIK:
+### 5) Run frontend
+
 ```bash
-python -m app.cli ingest-13f --cik 0001067983 --limit 20
+cd apps/web
+npm install
+npm run dev
 ```
 
-6. Trigger 13D/G discovery+ingestion for one manager CIK:
-```bash
-python -m app.cli ingest-13dg --cik 0001067983 --limit 20
-```
-`--limit` applies to matching target forms (e.g., `13F-HR`, `13F-HR/A`, `SC 13D`, `SC 13G`), not just the first N mixed `filings.recent` rows.
+Open:
+- `http://localhost:3000`
 
-7. Resolve unmapped holdings/events into `security_id`:
-```bash
-python -m app.cli resolve-mappings
-```
+## Pipeline Commands
 
-8. Refresh aggregate tables used for analytics screens:
-```bash
-python -m app.cli refresh-aggregates
-```
+### Initial seeding
 
-9. Sync ticker identifiers for active/high-interest securities:
-```bash
-python -m app.cli sync-tickers --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000 --universe-only
-```
+Discover + ingest broad 13F universe:
 
-10. Refresh manager universe (Top-N):
-```bash
-python -m app.cli refresh-universe --top-n 300
-```
-
-11. Run full scoped automated pipeline:
-```bash
-python -m app.cli pipeline-run --top-n 300 --ingest-limit 20 --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000
-```
-
-12. Bootstrap from a seed CIK list (initial population):
-```bash
-python -m app.cli ingest-cik-list --file seeds/ciks.sample.txt --limit 20 --include-13dg
-python -m app.cli resolve-mappings
-python -m app.cli sync-tickers --recent-quarters 4 --min-holders 3 --min-total-value-usd 250000000 --universe-only
-python -m app.cli refresh-aggregates
-python -m app.cli refresh-universe --top-n 300
-```
-
-13. Full initial seeding (auto-discover larger 13F manager universe):
 ```bash
 python -m app.cli discover-13f-ciks --quarters 6 --max-ciks 0 --out seeds/ciks.discovered.txt
 python -m app.cli ingest-cik-list --file seeds/ciks.discovered.txt --limit 40 --include-13dg
@@ -79,38 +126,21 @@ python -m app.cli sync-tickers --recent-quarters 4 --min-holders 3 --min-total-v
 python -m app.cli refresh-aggregates
 python -m app.cli refresh-universe --top-n 300
 ```
-Or run:
+
+Or:
+
 ```bash
 make seed-full
 ```
 
-13b. Seed explicitly by top 13F AUM proxy from SEC dataset (ingest only missing managers, optional prune):
+### Top-AUM scoped seed
+
 ```bash
 python -m app.cli seed-top-aum --top-n 100 --limit 40 --include-13dg
 ```
-Use `--dataset-url` to pin a specific SEC 13F ZIP, and `--no-prune` to skip deleting managers below threshold.
 
-14. Move existing SQLite data to local Docker Postgres (no re-ingest):
-```bash
-# create a consistent snapshot first
-sqlite3 data/app.db ".backup data/app.snapshot.db"
+### Incremental recurring update (13F + optional 13D/G)
 
-# start Postgres
-make pg-up
-
-# migrate snapshot into Postgres
-make pg-migrate
-
-# point API to Postgres
-export API_DB_URL="postgresql+psycopg://flow:flow@127.0.0.1:5433/flowdb"
-```
-
-15. Resume only post-ingest stages in Postgres (no new SEC ingest):
-```bash
-make pg-resume-post
-```
-
-16. Efficient recurring update (incremental):
 ```bash
 python -m app.cli update-incremental \
   --top-n 300 \
@@ -119,21 +149,11 @@ python -m app.cli update-incremental \
   --recent-quarters 4 \
   --min-holders 3 \
   --min-total-value-usd 250000000 \
-  --skip-sync-tickers \
   --log-file logs/incremental.jsonl
 ```
-This updates active managers, resolves only recent report-date batches, and refreshes aggregates/universe.
 
-Postgres shortcut:
-```bash
-make pg-incremental
-```
+### Daily 13D/G feed update + cleanup
 
-Optional coverage alert thresholds:
-- `--alert-min-13f-pct` (default `95.0`)
-- `--alert-min-bo-pct` (default `95.0`)
-
-16b. Daily 13D/G feed update (active universe):
 ```bash
 python -m app.cli update-13dg-feed \
   --per-manager-limit 20 \
@@ -141,122 +161,73 @@ python -m app.cli update-13dg-feed \
   --index-discovery-mode daily \
   --discovery-days 21
 ```
-This ingests recent `SC 13D/13G` filings from SEC index-discovered CIKs (daily mode) and resolves newly inserted BO events.  
-Use `--include-universe` only if you explicitly want to also scan `manager_universe` CIKs.
 
-One-time broader backfill (recommended after enabling this pipeline):
+### Validation
+
 ```bash
-python -m app.cli update-13dg-feed \
-  --no-include-universe \
-  --index-discovery-mode both \
-  --discovery-days 120 \
-  --discovery-quarters 8 \
-  --discovery-max-ciks 0 \
-  --per-manager-limit 40 \
-  --resolve-limit 0
+python -m app.cli validate-live --sample-managers 10 --sample-tickers 20 --tolerance-pct 0.25
 ```
 
-Discovery-only export (no ingest):
-```bash
-python -m app.cli discover-13dg-ciks --mode both --days 120 --quarters 8 --max-ciks 0 --out seeds/ciks.13dg.discovered.txt
-```
+Optional external snapshot checks:
 
-Example cron (daily at 06:30 local):
-```bash
-30 6 * * * cd /Users/avrm/Documents/Repos/Codex/13F-tracker && /Users/avrm/Documents/Repos/Codex/13F-tracker/.venv/bin/python -m app.cli update-13dg-feed --per-manager-limit 20 --resolve-limit 6 --index-discovery-mode daily --discovery-days 21 >> logs/13dg_daily.log 2>&1
-```
-
-17. Live analytics validation (internal consistency + optional third-party snapshot):
-```bash
-python -m app.cli validate-live \
-  --sample-managers 10 \
-  --sample-tickers 20 \
-  --tolerance-pct 0.25 \
-  --fail-on-error
-```
-Optional external comparison:
 ```bash
 python -m app.cli validate-live --ticker AAPL --external-provider auto
 ```
-External providers:
-- `nasdaq` (institutional-holdings endpoint)
-- `polygon` (shares outstanding + splits where available)
-- `alphavantage` (shares outstanding)
-- `auto` (tries Polygon first, then Alpha Vantage)
 
-Rate-limit knobs:
-- `NASDAQ_BURST_PER_SECOND` (default `0.5`)
-- `POLYGON_BURST_PER_SECOND` (default `0.2`)
-- `ALPHAVANTAGE_BURST_PER_SECOND` (default `0.08`)
+## API Surface (Current)
 
-## Frontend (Next.js)
+### System / Ops
+- `GET /health`
+- `GET /ops/institution-universe` (alias: `/ops/manager-universe`)
+- `GET /ops/api-usage`
+- `GET /ops/pipeline-runs/latest`
 
-Web app location: `apps/web`
+### Ingestion / Jobs
+- `POST /ingest/sec/13f`
+- `POST /ingest/sec/13dg`
+- `POST /jobs/resolve-mappings`
+- `POST /jobs/refresh-aggregates`
+- `POST /jobs/sync-tickers`
+- `POST /jobs/refresh-universe`
+- `POST /jobs/enrich-cusips`
+- `POST /jobs/update-13dg-feed`
 
-1. Install dependencies:
-```bash
-cd apps/web
-npm install
-```
+### Product APIs
+- `GET /home/overview`
+- `GET /security/search`
+- `GET /security/{ticker}`
+- `GET /security/{ticker}/events`
+- `GET /feeds/13dg`
+- `GET /institution/{manager_key}` (alias: `/manager/{manager_key}`)
 
-2. Start dev server:
-```bash
-npm run dev
-```
+### Legacy screener APIs (still available)
+- `GET /screeners/accumulation`
+- `GET /screeners/new-5pct-holders`
+- `GET /screeners/accumulation-history`
 
-3. Open:
-- `http://localhost:3000`
-- Security page: `/security/AAPL`
-- Manager page: `/manager/1`
-- Screeners: `/screeners`
-- Ops console: `/ops`
+For full endpoint parameters and response contracts, see:
+- [`docs/product_spec.md`](docs/product_spec.md)
 
-## Smoke tests
+## Testing / Smoke
 
-From repo root (`/Users/avrm/Documents/Repos/Codex/13F-tracker`):
+From repo root:
 
 ```bash
 make smoke-import
 make init-db
 make smoke-health
+make api-test
 ```
-
-Notes:
-
-- `smoke-health` uses `timeout`/`gtimeout` and avoids `pkill`.
-- If your environment blocks local socket bind (sandbox restriction), run the same command on your host shell.
-
-## API endpoints (current)
-
-- `GET /health`
-- `POST /ingest/sec/13f?cik=...&limit=...`
-- `POST /ingest/sec/13dg?cik=...&limit=...`
-- `POST /jobs/sync-tickers?limit=...&recent_quarters=...&min_holders=...&min_total_value_usd=...&universe_only=...`
-- `POST /jobs/resolve-mappings?limit=...`
-- `POST /jobs/refresh-aggregates`
-- `POST /jobs/refresh-universe?top_n=...`
-- `POST /jobs/update-13dg-feed?top_n=...&per_manager_limit=...&resolve_limit=...&index_discovery_mode=...&discovery_days=...`
-- `GET /security/{ticker}`
-- `GET /security/{ticker}/events`
-- `GET /feeds/13dg?days=...&limit_n=...`
-- `GET /security/search?q=...`
-- `GET /manager/{manager_key}` (`manager_id` or `cik`)
-- `GET /screeners/accumulation?curr_q=YYYY-MM-DD&prev_q=YYYY-MM-DD`
-- `GET /screeners/accumulation-history?limit_n=...`
-- `GET /screeners/new-5pct-holders?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
-- `GET /ops/manager-universe?limit_n=...`
-- `GET /ops/api-usage?days=...&limit_n=...`
-- `python -m app.cli validate-live` (CLI audit command)
 
 ## Notes
 
-- SEC endpoints require a valid `SEC_USER_AGENT` in `.env`.
-- This MVP ingests SEC metadata and parses available 13F information-table XML into `holdings_13f`.
-- 13D/G parsing currently extracts best-effort CUSIP and percent-owned from filing text.
-- Resolver now maps `UNMAPPED` rows using effective-dated identifiers (`CUSIP` first, then `TICKER`) and alias fallback with confidence.
-- Security page QoQ net change applies split factors from `corporate_actions` rows with `action_type='SPLIT'`.
-- API request logging is verbose by design and captured in `api_request_log` for usage telemetry.
-- Seed file support: `ingest-cik-list --file <path>` accepts `.txt` (one CIK per line) or `.csv` with a `cik` column.
-- Discovery support: `discover-13f-ciks` scans recent SEC `master.idx` files for `13F-HR` / `13F-HR/A` filers and writes a deduplicated CIK list. Use `--max-ciks 0` for full coverage; capped runs are tie-aware and include all CIKs at the cutoff score.
-- 13D/G discovery support: `discover-13dg-ciks` scans SEC `daily-index` and/or `full-index` for `SC 13D/13G` filers and writes a deduplicated CIK list.
-- Scaling/retention runbook: `docs/postgres_scaling.md`.
+- SEC ingestion requires compliant `SEC_USER_AGENT`.
+- Rate limiting is enforced via provider token-bucket controls.
+- 13D/G feed pipeline includes label sanitation and retention cleanup.
+- `holdings_13f` is the dominant storage footprint; index strategy matters materially for performance and DB size.
+
+## Documentation
+
+- Product spec: [`docs/product_spec.md`](docs/product_spec.md)
+- Ingestion workflow notes: [`docs/ingestion_workflow.md`](docs/ingestion_workflow.md)
+- Postgres scaling runbook: [`docs/postgres_scaling.md`](docs/postgres_scaling.md)
