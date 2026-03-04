@@ -1912,8 +1912,26 @@ def home_overview(
     scatter_n: int = Query(120, ge=0, le=400),
     strong_shares_threshold: float = Query(1_000_000.0, ge=0),
     strong_holders_threshold: int = Query(5, ge=0, le=1000),
+    flow_min_holders: int = Query(10, ge=0, le=10000),
+    flow_min_total_value_usd: float = Query(50_000_000.0, ge=0.0),
+    flow_clip_lower_quantile: float = Query(0.01, ge=0.0, le=0.5),
+    flow_clip_upper_quantile: float = Query(0.99, ge=0.5, le=1.0),
     db: Session = Depends(get_db),
 ) -> dict:
+    # Normalize when called directly (outside FastAPI dependency/query parsing).
+    flow_min_holders = int(flow_min_holders) if isinstance(flow_min_holders, (int, float)) else 10
+    flow_min_total_value_usd = (
+        float(flow_min_total_value_usd) if isinstance(flow_min_total_value_usd, (int, float)) else 50_000_000.0
+    )
+    flow_clip_lower_quantile = (
+        float(flow_clip_lower_quantile) if isinstance(flow_clip_lower_quantile, (int, float)) else 0.01
+    )
+    flow_clip_upper_quantile = (
+        float(flow_clip_upper_quantile) if isinstance(flow_clip_upper_quantile, (int, float)) else 0.99
+    )
+    if flow_clip_lower_quantile > flow_clip_upper_quantile:
+        flow_clip_lower_quantile, flow_clip_upper_quantile = flow_clip_upper_quantile, flow_clip_lower_quantile
+
     quarter_rows = db.execute(
         text(
             """
@@ -1956,7 +1974,21 @@ def home_overview(
                 "unique_filers": 0,
                 "unique_securities": 0,
             },
-            "largest_new_stake_30d": None,
+            "flow_distribution": {
+                "bin_count": 30,
+                "max_abs_value_usd": 0.0,
+                "total_securities": 0,
+                "filters": {
+                    "min_holders": flow_min_holders,
+                    "min_total_value_usd": flow_min_total_value_usd,
+                    "clip_lower_quantile": flow_clip_lower_quantile,
+                    "clip_upper_quantile": flow_clip_upper_quantile,
+                    "binning_method": "freedman_diaconis",
+                    "min_bins": 30,
+                    "max_bins": 100,
+                },
+                "bins": [],
+            },
             "pulse_series": {
                 "breadth_accum_pct": [],
                 "participation_increase_pct": [],
@@ -2023,6 +2055,118 @@ def home_overview(
         }
 
     pulse_stats_latest = _flow_stats(curr_quarter=latest_quarter, prev_quarter=previous_quarter)
+    flow_fd_min_bins = 30
+    flow_fd_max_bins = 100
+    flow_rows = db.execute(
+        text(
+            """
+            SELECT
+              (COALESCE(c.total_value_usd, 0) - COALESCE(p.total_value_usd, 0)) AS delta_value_usd,
+              COALESCE(c.holders_count, 0) AS holders_count,
+              COALESCE(c.total_value_usd, 0) AS curr_total_value_usd
+            FROM agg_security_quarter c
+            JOIN securities s ON s.security_id = c.security_id
+            LEFT JOIN agg_security_quarter p
+              ON p.security_id = c.security_id
+             AND p.report_date = :prev_quarter
+            WHERE c.report_date = :curr_quarter
+              AND UPPER(COALESCE(s.instrument_type, '')) NOT IN ('OPTION', 'WARRANT', 'RIGHT')
+            """
+        ),
+        {"curr_quarter": latest_quarter, "prev_quarter": previous_quarter},
+    ).all()
+    flow_values_usd: list[float] = []
+    for row in flow_rows:
+        delta_usd = float(row[0] or 0.0) * value_scale
+        holders_count = int(row[1] or 0)
+        curr_total_value_usd = float(row[2] or 0.0) * value_scale
+        if holders_count < flow_min_holders:
+            continue
+        if curr_total_value_usd < flow_min_total_value_usd:
+            continue
+        flow_values_usd.append(delta_usd)
+
+    def _percentile(sorted_values: list[float], q: float) -> float:
+        if not sorted_values:
+            return 0.0
+        if q <= 0:
+            return sorted_values[0]
+        if q >= 1:
+            return sorted_values[-1]
+        idx = (len(sorted_values) - 1) * q
+        lower = int(idx)
+        upper = min(lower + 1, len(sorted_values) - 1)
+        frac = idx - lower
+        return (sorted_values[lower] * (1.0 - frac)) + (sorted_values[upper] * frac)
+
+    flow_total_securities = len(flow_values_usd)
+    sorted_values = sorted(flow_values_usd)
+    clip_low = _percentile(sorted_values, flow_clip_lower_quantile) if sorted_values else 0.0
+    clip_high = _percentile(sorted_values, flow_clip_upper_quantile) if sorted_values else 0.0
+    if clip_high < clip_low:
+        clip_low, clip_high = clip_high, clip_low
+
+    q25 = _percentile(sorted_values, 0.25) if sorted_values else 0.0
+    q75 = _percentile(sorted_values, 0.75) if sorted_values else 0.0
+    iqr = q75 - q25
+    flow_distribution_bin_count = flow_fd_min_bins
+    if flow_total_securities > 1 and iqr > 0 and clip_high > clip_low:
+        fd_width = 2.0 * iqr / (flow_total_securities ** (1.0 / 3.0))
+        if fd_width > 0:
+            flow_distribution_bin_count = int((clip_high - clip_low) / fd_width)
+    flow_distribution_bin_count = max(flow_fd_min_bins, min(flow_fd_max_bins, flow_distribution_bin_count))
+    flow_bin_counts = [0 for _ in range(flow_distribution_bin_count)]
+    if flow_total_securities > 0:
+        if clip_high <= clip_low:
+            flow_bin_counts[flow_distribution_bin_count // 2] = flow_total_securities
+        else:
+            flow_span = clip_high - clip_low
+            for value_usd in flow_values_usd:
+                if value_usd > clip_high:
+                    value_usd = clip_high
+                elif value_usd < clip_low:
+                    value_usd = clip_low
+                idx = int(((value_usd - clip_low) / flow_span) * flow_distribution_bin_count)
+                if idx < 0:
+                    idx = 0
+                elif idx >= flow_distribution_bin_count:
+                    idx = flow_distribution_bin_count - 1
+                flow_bin_counts[idx] += 1
+    flow_bin_width = ((clip_high - clip_low) / flow_distribution_bin_count) if clip_high > clip_low else 0.0
+    flow_bins = []
+    for idx, count in enumerate(flow_bin_counts):
+        if clip_high > clip_low:
+            range_start_usd = clip_low + (flow_bin_width * idx)
+            range_end_usd = clip_high if idx == (flow_distribution_bin_count - 1) else (range_start_usd + flow_bin_width)
+        else:
+            range_start_usd = 0.0
+            range_end_usd = 0.0
+        flow_bins.append(
+            {
+                "bin_index": idx,
+                "range_start_usd": range_start_usd,
+                "range_end_usd": range_end_usd,
+                "count": count,
+            }
+        )
+    flow_distribution = {
+        "bin_count": flow_distribution_bin_count,
+        "max_abs_value_usd": max(abs(clip_low), abs(clip_high)),
+        "raw_max_abs_value_usd": max((abs(x) for x in flow_values_usd), default=0.0),
+        "clip_low_usd": clip_low,
+        "clip_high_usd": clip_high,
+        "total_securities": flow_total_securities,
+        "filters": {
+            "min_holders": flow_min_holders,
+            "min_total_value_usd": flow_min_total_value_usd,
+            "clip_lower_quantile": flow_clip_lower_quantile,
+            "clip_upper_quantile": flow_clip_upper_quantile,
+            "binning_method": "freedman_diaconis",
+            "min_bins": flow_fd_min_bins,
+            "max_bins": flow_fd_max_bins,
+        },
+        "bins": flow_bins,
+    }
 
     def _bo_mix_between(start_exclusive: str, end_inclusive: str) -> tuple[int, int]:
         row = db.execute(
@@ -2082,62 +2226,6 @@ def home_overview(
         {"start_date": d30, "end_date": today_iso},
     ).mappings().first() or {}
 
-    largest_new_stake_rows = db.execute(
-        text(
-            """
-            SELECT
-              b.report_date,
-              b.event_type,
-              b.percent_beneficial_owned,
-              b.shares_beneficial_owned,
-              b.security_id,
-              b.issuer_name_raw,
-              b.ticker_raw,
-              m.manager_id,
-              m.manager_name,
-              f.form_type,
-              (
-                SELECT si.id_value
-                FROM security_identifiers si
-                WHERE si.security_id = b.security_id
-                  AND si.id_type = 'TICKER'
-                  AND (si.valid_to IS NULL OR date('now') < date(si.valid_to))
-                ORDER BY si.valid_from DESC
-                LIMIT 1
-              ) AS ticker
-            FROM beneficial_ownership_events b
-            LEFT JOIN managers m ON m.manager_id = b.manager_id
-            JOIN filings f ON f.filing_id = b.filing_id
-            WHERE b.event_type = 'NEW_5PCT'
-              AND b.report_date >= :start_date
-              AND b.report_date <= :end_date
-              AND b.percent_beneficial_owned IS NOT NULL
-            ORDER BY b.percent_beneficial_owned DESC, b.report_date DESC, b.bo_event_id DESC
-            LIMIT 100
-            """
-        ),
-        {"start_date": d30, "end_date": today_iso},
-    ).mappings().all()
-    largest_new_stake = None
-    if largest_new_stake_rows:
-        candidate_rows = [dict(x) for x in largest_new_stake_rows]
-        chosen_row = candidate_rows[0]
-        for candidate in candidate_rows:
-            if _derive_feed_security_display(candidate):
-                chosen_row = candidate
-                break
-        security_display = _derive_feed_security_display(chosen_row)
-        largest_new_stake = {
-            "report_date": chosen_row.get("report_date"),
-            "percent_beneficial_owned": float(chosen_row.get("percent_beneficial_owned") or 0.0),
-            "shares_beneficial_owned": chosen_row.get("shares_beneficial_owned"),
-            "security_id": chosen_row.get("security_id"),
-            "security_display": security_display,
-            "ticker": chosen_row.get("ticker"),
-            "manager_id": chosen_row.get("manager_id"),
-            "manager_name": chosen_row.get("manager_name"),
-            "form_type": chosen_row.get("form_type"),
-        }
     pulse_series_breadth: list[dict[str, object]] = []
     pulse_series_participation: list[dict[str, object]] = []
     pulse_series_value: list[dict[str, object]] = []
@@ -2373,7 +2461,7 @@ def home_overview(
             "unique_filers": int(bo_activity_30d_row.get("unique_filers", 0) or 0),
             "unique_securities": int(bo_activity_30d_row.get("unique_securities", 0) or 0),
         },
-        "largest_new_stake_30d": largest_new_stake,
+        "flow_distribution": flow_distribution,
         "pulse_series": {
             "breadth_accum_pct": pulse_series_breadth,
             "participation_increase_pct": pulse_series_participation,

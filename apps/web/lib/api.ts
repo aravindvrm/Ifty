@@ -211,17 +211,29 @@ export type HomeOverviewResponse = {
     unique_filers: number;
     unique_securities: number;
   };
-  largest_new_stake_30d: {
-    report_date: string;
-    percent_beneficial_owned: number;
-    shares_beneficial_owned: number | null;
-    security_id: number | null;
-    security_display: string | null;
-    ticker: string | null;
-    manager_id: number | null;
-    manager_name: string | null;
-    form_type: string | null;
-  } | null;
+  flow_distribution: {
+    bin_count: number;
+    max_abs_value_usd: number;
+    raw_max_abs_value_usd?: number;
+    clip_low_usd?: number;
+    clip_high_usd?: number;
+    total_securities: number;
+    filters?: {
+      min_holders?: number;
+      min_total_value_usd?: number;
+      clip_lower_quantile?: number;
+      clip_upper_quantile?: number;
+      binning_method?: string;
+      min_bins?: number;
+      max_bins?: number;
+    };
+    bins: Array<{
+      bin_index: number;
+      range_start_usd: number;
+      range_end_usd: number;
+      count: number;
+    }>;
+  };
   pulse_series: {
     breadth_accum_pct: Array<{ report_date: string; value: number }>;
     participation_increase_pct: Array<{ report_date: string; value: number }>;
@@ -419,6 +431,10 @@ export function getHomeOverview(
     scatterN?: number;
     strongSharesThreshold?: number;
     strongHoldersThreshold?: number;
+    flowMinHolders?: number;
+    flowMinTotalValueUsd?: number;
+    flowClipLowerQuantile?: number;
+    flowClipUpperQuantile?: number;
   }
 ) {
   const params = new URLSearchParams();
@@ -427,6 +443,10 @@ export function getHomeOverview(
   if (options?.scatterN !== undefined) params.set("scatter_n", String(options.scatterN));
   if (options?.strongSharesThreshold !== undefined) params.set("strong_shares_threshold", String(options.strongSharesThreshold));
   if (options?.strongHoldersThreshold !== undefined) params.set("strong_holders_threshold", String(options.strongHoldersThreshold));
+  if (options?.flowMinHolders !== undefined) params.set("flow_min_holders", String(options.flowMinHolders));
+  if (options?.flowMinTotalValueUsd !== undefined) params.set("flow_min_total_value_usd", String(options.flowMinTotalValueUsd));
+  if (options?.flowClipLowerQuantile !== undefined) params.set("flow_clip_lower_quantile", String(options.flowClipLowerQuantile));
+  if (options?.flowClipUpperQuantile !== undefined) params.set("flow_clip_upper_quantile", String(options.flowClipUpperQuantile));
   const qs = params.toString();
   return requestJson<HomeOverviewResponse>(`/home/overview${qs ? `?${qs}` : ""}`);
 }

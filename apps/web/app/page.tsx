@@ -1,8 +1,5 @@
-import Link from "next/link";
-
 import { Sparkline } from "@/components/charts";
 import { TopMoversColumn } from "@/components/top-movers-column";
-import { TickerIcon } from "@/components/ticker-icon";
 import { getHomeOverview } from "@/lib/api";
 import { fmtNumber, fmtPct, fmtUsd } from "@/lib/format";
 
@@ -23,6 +20,26 @@ function fmtSignedUsd(value: number): string {
 
 function toneClass(value: number): string {
   return value >= 0 ? "text-emerald-300" : "text-rose-300";
+}
+
+function histogramTone(rangeStartUsd: number, rangeEndUsd: number): string {
+  const midpoint = (rangeStartUsd + rangeEndUsd) / 2;
+  if (midpoint < 0) {
+    return "bg-rose-400/80";
+  }
+  if (midpoint > 0) {
+    return "bg-emerald-400/80";
+  }
+  return "bg-accentBlue/80";
+}
+
+function fmtUsdAxis(value: number): string {
+  if (!Number.isFinite(value)) return "$0";
+  const abs = Math.abs(value);
+  if (abs >= 1000) {
+    return fmtUsd(value);
+  }
+  return `$${value.toFixed(2)}`;
 }
 
 const TICKER_PATTERN = /^[A-Z]{1,6}(?:\.[A-Z]{1,2})?$/;
@@ -84,6 +101,12 @@ export default async function HomePage() {
     { key: "distributed", title: "Top Distributed (QoQ)", rows: overview.top_movers.distributed.filter(isDisplayableMover) },
     { key: "new_holders", title: "Most New Holders (QoQ)", rows: overview.top_movers.new_holders.filter(isDisplayableMover) },
   ] as const;
+  const flowBins = overview.flow_distribution.bins ?? [];
+  const histogramPeak = Math.max(1, ...flowBins.map((bin) => bin.count ?? 0));
+  const flowMin = flowBins.length > 0 ? Number(flowBins[0].range_start_usd ?? 0) : 0;
+  const flowMax = flowBins.length > 0 ? Number(flowBins[flowBins.length - 1].range_end_usd ?? 0) : 0;
+  const flowMid = (flowMin + flowMax) / 2;
+  const flowFilters = overview.flow_distribution.filters ?? {};
 
   return (
     <div className="space-y-6">
@@ -149,67 +172,51 @@ export default async function HomePage() {
 
       <section>
         <article className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
-          <h2 className="text-lg font-semibold text-slate-100">Largest New Stake (30d)</h2>
-          {overview.largest_new_stake_30d ? (
-            <div className="mt-4 space-y-3">
-              <div className="rounded-none border border-line/70 bg-black/20 p-3">
-                <div className="text-xs text-slate-500">Security</div>
-                <div className="mt-1 text-sm font-medium text-slate-100">
-                  {overview.largest_new_stake_30d.ticker ? (
-                    <Link
-                      href={`/security/${encodeURIComponent(overview.largest_new_stake_30d.ticker)}`}
-                      className="inline-flex items-center gap-2 text-accentBlue hover:text-white"
-                    >
-                      <TickerIcon
-                        ticker={overview.largest_new_stake_30d.ticker}
-                        label={overview.largest_new_stake_30d.security_display}
-                      />
-                      <span>{overview.largest_new_stake_30d.ticker}</span>
-                    </Link>
-                  ) : (
-                    overview.largest_new_stake_30d.security_display ?? "-"
-                  )}
-                </div>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-100">Flow Distribution (QoQ Value)</h2>
+            <span className="text-xs text-slate-500">
+              {fmtNumber(overview.flow_distribution.total_securities)} securities
+            </span>
+          </div>
+          {overview.flow_distribution.total_securities > 0 && flowBins.length > 0 ? (
+            <div className="space-y-3">
+              <div className="flex h-44 items-end gap-1 rounded-none border border-line/70 bg-black/20 p-3">
+                {flowBins.map((bin) => {
+                  const normalizedHeight = Math.round(
+                    (Math.log1p(bin.count) / Math.log1p(histogramPeak)) * 140
+                  );
+                  const heightPx = bin.count > 0 ? Math.max(10, normalizedHeight) : 2;
+                  return (
+                    <div
+                      key={bin.bin_index}
+                      className={`flex-1 transition-opacity hover:opacity-80 ${histogramTone(
+                        Number(bin.range_start_usd ?? 0),
+                        Number(bin.range_end_usd ?? 0)
+                      )} ${
+                        bin.count > 0 ? "" : "opacity-30"
+                      }`}
+                      style={{ height: `${heightPx}px` }}
+                      title={`${fmtUsd(bin.range_start_usd)} to ${fmtUsd(bin.range_end_usd)}: ${fmtNumber(bin.count)}`}
+                    />
+                  );
+                })}
               </div>
-              <div className="rounded-none border border-line/70 bg-black/20 p-3">
-                <div className="text-xs text-slate-500">Institution</div>
-                <div className="mt-1 text-sm font-medium text-slate-100">
-                  {overview.largest_new_stake_30d.manager_id ? (
-                    <Link
-                      href={`/institution/${overview.largest_new_stake_30d.manager_id}`}
-                      className="text-accentBlue hover:text-white"
-                    >
-                      {overview.largest_new_stake_30d.manager_name ??
-                        `Institution ${overview.largest_new_stake_30d.manager_id}`}
-                    </Link>
-                  ) : (
-                    overview.largest_new_stake_30d.manager_name ?? "-"
-                  )}
-                </div>
+              <div className="grid grid-cols-3 text-xs text-slate-500">
+                <span>{fmtUsdAxis(flowMin)}</span>
+                <span className="text-center">{fmtUsdAxis(flowMid)}</span>
+                <span className="text-right">{fmtUsdAxis(flowMax)}</span>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-none border border-line/70 bg-black/20 p-3">
-                  <div className="text-xs text-slate-500">% Beneficial Owned</div>
-                  <div className="mt-1 text-sm font-semibold text-emerald-300">
-                    {fmtPct((overview.largest_new_stake_30d.percent_beneficial_owned ?? 0) / 100)}
-                  </div>
-                </div>
-                <div className="rounded-none border border-line/70 bg-black/20 p-3">
-                  <div className="text-xs text-slate-500">Filed Date</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-100">
-                    {overview.largest_new_stake_30d.report_date ?? "-"}
-                  </div>
-                </div>
-              </div>
-              <div className="rounded-none border border-line/70 bg-black/20 p-3">
-                <div className="text-xs text-slate-500">Form</div>
-                <div className="mt-1 text-sm font-semibold text-slate-100">
-                  {overview.largest_new_stake_30d.form_type ?? "-"}
-                </div>
-              </div>
+              <p className="text-xs text-slate-500">
+                Net value ($) QoQ distribution for latest ({overview.latest_quarter ?? "-"}) vs previous (
+                {overview.previous_quarter ?? "-"}) quarter, clipped to p01-p99.
+              </p>
+              <p className="text-[11px] text-slate-600">
+                Filters: holders &ge; {fmtNumber(flowFilters.min_holders ?? 10)}, value &ge;{" "}
+                {fmtUsd(flowFilters.min_total_value_usd ?? 50_000_000)}. Bins: Freedman-Diaconis (30-100), log-height.
+              </p>
             </div>
           ) : (
-            <p className="mt-3 text-sm text-slate-500">No NEW_5PCT event found in the last 30 days.</p>
+            <p className="mt-3 text-sm text-slate-500">No flow distribution data available yet.</p>
           )}
         </article>
       </section>
