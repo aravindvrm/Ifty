@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { HoldingsHeatmap, NetAccumulationBarChart } from "@/components/charts";
 import { SecurityActivePositionsTable } from "@/components/security-active-positions-table";
+import { TickerIcon } from "@/components/ticker-icon";
 import { getSecurity, getSecurityEventsFiltered } from "@/lib/api";
 import { fmtNumber, fmtPct, fmtUsd } from "@/lib/format";
 
@@ -77,8 +78,10 @@ export default async function SecurityPage({ params, searchParams }: Props) {
       <section className="rounded-2xl border border-line/80 bg-card/80 p-6 shadow-panel">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-100">
-              {security.ticker} {security.security_name ? `- ${security.security_name}` : ""}
+            <h1 className="inline-flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-100">
+              <TickerIcon ticker={security.ticker} label={security.security_name} size={22} />
+              <span>{security.ticker}</span>
+              {security.security_name ? <span className="text-slate-100">- {security.security_name}</span> : null}
             </h1>
             <p className="mt-2 text-sm text-slate-400">
               Last report date: {latestQuarter ?? "-"} • MIC {security.mic || "N/A"} • Security ID {security.security_id}

@@ -95,6 +95,7 @@ export type ManagerPageResponse = {
     ticker?: string | null;
     shares: number;
     value_usd_thousands: number;
+    qoq_delta_value_usd_thousands?: number | null;
   }>;
   new_positions: Array<Record<string, unknown>>;
   exited_positions: Array<Record<string, unknown>>;
@@ -117,6 +118,8 @@ export type ManagerPageResponse = {
     exited_positions_count?: number;
     total_value_current?: number;
     total_value_previous?: number;
+    comparison_quarter?: string | null;
+    comparison_method?: "exact_previous_quarter" | "latest_available_prior" | null;
   };
 };
 
