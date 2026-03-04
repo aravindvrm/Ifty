@@ -4,7 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Institutional Flow Tracker",
+  title: "Ifty",
   description: "13F/13D-G institutional flow intelligence"
 };
 

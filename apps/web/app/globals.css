@@ -21,6 +21,40 @@
   box-sizing: border-box;
 }
 
+/* Dark scrollbar styling for primary app scroll areas */
+.app-main-scroll,
+.app-sidebar-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: rgba(96, 120, 156, 0.95) rgba(6, 12, 20, 0.96);
+}
+
+.app-main-scroll::-webkit-scrollbar,
+.app-sidebar-scroll::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+.app-main-scroll::-webkit-scrollbar-track,
+.app-sidebar-scroll::-webkit-scrollbar-track {
+  background: rgba(6, 12, 20, 0.96);
+}
+
+.app-main-scroll::-webkit-scrollbar-thumb,
+.app-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(105, 132, 171, 0.96), rgba(73, 95, 130, 0.98));
+  border: 3px solid rgba(6, 12, 20, 0.96);
+}
+
+.app-main-scroll::-webkit-scrollbar-thumb:hover,
+.app-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(127, 155, 194, 0.98), rgba(90, 114, 150, 1));
+}
+
+.app-main-scroll::-webkit-scrollbar-corner,
+.app-sidebar-scroll::-webkit-scrollbar-corner {
+  background: rgba(6, 12, 20, 0.96);
+}
+
 @layer base {
   * {
     border-color: rgba(36, 56, 88, 0.65);
@@ -655,6 +689,10 @@ button,
   100% {
     transform: translateX(-50%);
   }
+}
+
+.sidebar-circle {
+  border-radius: 9999px !important;
 }
 
 @media (max-width: 900px) {
