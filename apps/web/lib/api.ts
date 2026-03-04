@@ -232,6 +232,14 @@ export type HomeOverviewResponse = {
       range_start_usd: number;
       range_end_usd: number;
       count: number;
+      pct_of_universe?: number;
+      top_contributors?: Array<{
+        security_id: number;
+        ticker: string | null;
+        security_name: string | null;
+        label: string;
+        net_value_usd: number;
+      }>;
     }>;
   };
   pulse_series: {

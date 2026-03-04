@@ -1,4 +1,5 @@
 import { Sparkline } from "@/components/charts";
+import { FlowDistributionHistogram } from "@/components/flow-distribution-histogram";
 import { TopMoversColumn } from "@/components/top-movers-column";
 import { getHomeOverview } from "@/lib/api";
 import { fmtNumber, fmtPct, fmtUsd } from "@/lib/format";
@@ -102,10 +103,6 @@ export default async function HomePage() {
     { key: "new_holders", title: "Most New Holders (QoQ)", rows: overview.top_movers.new_holders.filter(isDisplayableMover) },
   ] as const;
   const flowBins = overview.flow_distribution.bins ?? [];
-  const histogramPeak = Math.max(1, ...flowBins.map((bin) => bin.count ?? 0));
-  const flowMin = flowBins.length > 0 ? Number(flowBins[0].range_start_usd ?? 0) : 0;
-  const flowMax = flowBins.length > 0 ? Number(flowBins[flowBins.length - 1].range_end_usd ?? 0) : 0;
-  const flowMid = (flowMin + flowMax) / 2;
   const flowFilters = overview.flow_distribution.filters ?? {};
 
   return (
@@ -185,32 +182,10 @@ export default async function HomePage() {
           </div>
           {overview.flow_distribution.total_securities > 0 && flowBins.length > 0 ? (
             <div className="space-y-3">
-              <div className="flex h-44 items-end gap-1 rounded-none border border-line/70 bg-black/20 p-3">
-                {flowBins.map((bin) => {
-                  const normalizedHeight = Math.round(
-                    (Math.log1p(bin.count) / Math.log1p(histogramPeak)) * 140
-                  );
-                  const heightPx = bin.count > 0 ? Math.max(10, normalizedHeight) : 2;
-                  return (
-                    <div
-                      key={bin.bin_index}
-                      className={`flex-1 transition-opacity hover:opacity-80 ${histogramTone(
-                        Number(bin.range_start_usd ?? 0),
-                        Number(bin.range_end_usd ?? 0)
-                      )} ${
-                        bin.count > 0 ? "" : "opacity-30"
-                      }`}
-                      style={{ height: `${heightPx}px` }}
-                      title={`${fmtUsd(bin.range_start_usd)} to ${fmtUsd(bin.range_end_usd)}: ${fmtNumber(bin.count)}`}
-                    />
-                  );
-                })}
-              </div>
-              <div className="grid grid-cols-3 text-xs text-slate-500">
-                <span>{fmtUsdAxis(flowMin)}</span>
-                <span className="text-center">{fmtUsdAxis(flowMid)}</span>
-                <span className="text-right">{fmtUsdAxis(flowMax)}</span>
-              </div>
+              <FlowDistributionHistogram
+                bins={flowBins}
+                totalSecurities={overview.flow_distribution.total_securities}
+              />
               <p className="text-xs text-slate-500">
                 Net value ($) QoQ distribution for latest ({overview.latest_quarter ?? "-"}) vs previous (
                 {overview.previous_quarter ?? "-"}) quarter, clipped to p01-p99.

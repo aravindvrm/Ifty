@@ -2061,6 +2061,17 @@ def home_overview(
         text(
             """
             SELECT
+              c.security_id AS security_id,
+              s.security_name AS security_name,
+              (
+                SELECT si.id_value
+                FROM security_identifiers si
+                WHERE si.security_id = c.security_id
+                  AND si.id_type = 'TICKER'
+                  AND (si.valid_to IS NULL OR date('now') < date(si.valid_to))
+                ORDER BY si.valid_from DESC
+                LIMIT 1
+              ) AS ticker,
               (COALESCE(c.total_value_usd, 0) - COALESCE(p.total_value_usd, 0)) AS delta_value_usd,
               COALESCE(c.holders_count, 0) AS holders_count,
               COALESCE(c.total_value_usd, 0) AS curr_total_value_usd
@@ -2074,17 +2085,25 @@ def home_overview(
             """
         ),
         {"curr_quarter": latest_quarter, "prev_quarter": previous_quarter},
-    ).all()
-    flow_values_usd: list[float] = []
+    ).mappings().all()
+    flow_points: list[dict[str, object]] = []
     for row in flow_rows:
-        delta_usd = float(row[0] or 0.0) * value_scale
-        holders_count = int(row[1] or 0)
-        curr_total_value_usd = float(row[2] or 0.0) * value_scale
+        delta_usd = float(row.get("delta_value_usd", 0.0) or 0.0) * value_scale
+        holders_count = int(row.get("holders_count", 0) or 0)
+        curr_total_value_usd = float(row.get("curr_total_value_usd", 0.0) or 0.0) * value_scale
         if holders_count < flow_min_holders:
             continue
         if curr_total_value_usd < flow_min_total_value_usd:
             continue
-        flow_values_usd.append(delta_usd)
+        flow_points.append(
+            {
+                "security_id": int(row.get("security_id")),
+                "security_name": row.get("security_name"),
+                "ticker": (str(row.get("ticker") or "").strip().upper() or None),
+                "delta_value_usd": delta_usd,
+            }
+        )
+    flow_values_usd: list[float] = [float(x["delta_value_usd"]) for x in flow_points]
 
     def _percentile(sorted_values: list[float], q: float) -> float:
         if not sorted_values:
@@ -2116,23 +2135,34 @@ def home_overview(
             flow_distribution_bin_count = int((clip_high - clip_low) / fd_width)
     flow_distribution_bin_count = max(flow_fd_min_bins, min(flow_fd_max_bins, flow_distribution_bin_count))
     flow_bin_counts = [0 for _ in range(flow_distribution_bin_count)]
-    if flow_total_securities > 0:
+    flow_bin_points: list[list[dict[str, object]]] = [[] for _ in range(flow_distribution_bin_count)]
+
+    def _flow_bin_index(value_usd: float) -> int:
+        if flow_distribution_bin_count <= 1:
+            return 0
         if clip_high <= clip_low:
-            flow_bin_counts[flow_distribution_bin_count // 2] = flow_total_securities
-        else:
-            flow_span = clip_high - clip_low
-            for value_usd in flow_values_usd:
-                if value_usd > clip_high:
-                    value_usd = clip_high
-                elif value_usd < clip_low:
-                    value_usd = clip_low
-                idx = int(((value_usd - clip_low) / flow_span) * flow_distribution_bin_count)
-                if idx < 0:
-                    idx = 0
-                elif idx >= flow_distribution_bin_count:
-                    idx = flow_distribution_bin_count - 1
-                flow_bin_counts[idx] += 1
+            return flow_distribution_bin_count // 2
+        flow_span = clip_high - clip_low
+        clipped_value = value_usd
+        if clipped_value > clip_high:
+            clipped_value = clip_high
+        elif clipped_value < clip_low:
+            clipped_value = clip_low
+        idx = int(((clipped_value - clip_low) / flow_span) * flow_distribution_bin_count)
+        if idx < 0:
+            return 0
+        if idx >= flow_distribution_bin_count:
+            return flow_distribution_bin_count - 1
+        return idx
+
+    if flow_total_securities > 0:
+        for point in flow_points:
+            idx = _flow_bin_index(float(point["delta_value_usd"]))
+            flow_bin_counts[idx] += 1
+            flow_bin_points[idx].append(point)
+
     flow_bin_width = ((clip_high - clip_low) / flow_distribution_bin_count) if clip_high > clip_low else 0.0
+    flow_bin_contributors_n = 5
     flow_bins = []
     for idx, count in enumerate(flow_bin_counts):
         if clip_high > clip_low:
@@ -2141,12 +2171,35 @@ def home_overview(
         else:
             range_start_usd = 0.0
             range_end_usd = 0.0
+        contributors = []
+        if count > 0:
+            top_points = sorted(
+                flow_bin_points[idx],
+                key=lambda point: abs(float(point["delta_value_usd"])),
+                reverse=True,
+            )[:flow_bin_contributors_n]
+            for point in top_points:
+                security_id = int(point["security_id"])
+                ticker = point.get("ticker")
+                security_name = point.get("security_name")
+                label = ticker or str(security_name or f"Security {security_id}")
+                contributors.append(
+                    {
+                        "security_id": security_id,
+                        "ticker": ticker,
+                        "security_name": security_name,
+                        "label": label,
+                        "net_value_usd": float(point["delta_value_usd"]),
+                    }
+                )
         flow_bins.append(
             {
                 "bin_index": idx,
                 "range_start_usd": range_start_usd,
                 "range_end_usd": range_end_usd,
                 "count": count,
+                "pct_of_universe": (count / flow_total_securities) if flow_total_securities > 0 else 0.0,
+                "top_contributors": contributors,
             }
         )
     flow_distribution = {
