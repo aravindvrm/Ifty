@@ -64,7 +64,7 @@ export default async function HomePage() {
     overview = await getHomeOverview({ quartersN: 8, topN: 10, scatterN: 0 });
   } catch (error) {
     return (
-      <section className="rounded-none border border-line/80 bg-card/70 p-6 shadow-panel">
+      <section className="rounded-none p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Institutional Flow Dashboard</h1>
         <p className="mt-2 text-sm text-slate-400">Failed to load homepage analytics.</p>
         <pre className="mt-3 overflow-auto rounded-none border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
@@ -110,7 +110,7 @@ export default async function HomePage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-none border border-line/80 bg-gradient-to-br from-card via-cardSoft to-[#0b1426] p-6 shadow-panel">
+      <section className="rounded-none p-6 shadow-panel">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-slate-100">Market Pulse</h1>
@@ -157,14 +157,19 @@ export default async function HomePage() {
       </section>
 
       <section>
-        <article className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
+        <article className="rounded-none p-5 shadow-panel">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-100">Top Movers</h2>
             <span className="text-xs text-slate-500">Ranked by latest QoQ aggregate movement</span>
           </div>
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            {columns.map((column) => (
-              <TopMoversColumn key={column.key} title={column.title} columnKey={column.key} rows={column.rows} />
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3 xl:gap-0">
+            {columns.map((column, index) => (
+              <div
+                key={column.key}
+                className={index === 0 ? "xl:pr-3" : "xl:border-l xl:border-line/70 xl:px-3"}
+              >
+                <TopMoversColumn title={column.title} columnKey={column.key} rows={column.rows} />
+              </div>
             ))}
           </div>
         </article>

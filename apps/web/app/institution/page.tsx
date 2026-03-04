@@ -16,7 +16,7 @@ export default async function InstitutionDirectoryPage({ searchParams }: Props) 
     universe = await getInstitutionUniverse(500);
   } catch (error) {
     return (
-      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Institutions</h1>
         <p className="mt-2 text-sm text-slate-400">Failed to load institution universe.</p>
         <pre className="mt-3 overflow-auto rounded-none border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
@@ -36,7 +36,7 @@ export default async function InstitutionDirectoryPage({ searchParams }: Props) 
 
   return (
     <div className="space-y-6">
-      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Institution Directory</h1>
         <p className="mt-2 text-sm text-slate-400">Open any tracked institution by rank, name, or CIK.</p>
         <EntitySearchInput

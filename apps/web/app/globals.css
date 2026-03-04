@@ -191,6 +191,12 @@ a {
   margin-bottom: 10px;
 }
 
+.chart-box.chart-box-plain {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
 .metric-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -10,7 +10,7 @@ export default async function OpsPage() {
     [universe, usage, pipeline] = await Promise.all([getInstitutionUniverse(300), getApiUsage(7, 100), getPipelineRunLatest()]);
   } catch (error) {
     return (
-      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Ops Console</h1>
         <p className="mt-2 text-sm text-slate-400">Failed to load ops data.</p>
         <pre className="mt-3 overflow-auto rounded-none border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
@@ -34,7 +34,7 @@ export default async function OpsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Ops Console</h1>
         <p className="mt-2 text-sm text-slate-400">
           Institution universe and API usage telemetry (last 7 days). This is the control plane for scoped ingestion.

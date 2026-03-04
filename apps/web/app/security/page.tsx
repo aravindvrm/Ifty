@@ -20,7 +20,7 @@ export default async function SecuritySearchPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Security Search</h1>
         <p className="mt-2 text-sm text-slate-400">Search by ticker or issuer name.</p>
         <EntitySearchInput

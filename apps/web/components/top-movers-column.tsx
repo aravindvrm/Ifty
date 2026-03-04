@@ -39,12 +39,14 @@ export function TopMoversColumn({
   rows,
   pageSize = 5,
   intervalMs = 5200,
+  className = "",
 }: {
   title: string;
   columnKey: string;
   rows: MoverRow[];
   pageSize?: number;
   intervalMs?: number;
+  className?: string;
 }) {
   const ANIMATION_MS = 620;
   const ROW_HEIGHT_PX = 102;
@@ -142,7 +144,7 @@ export function TopMoversColumn({
   );
 
   return (
-    <div className="rounded-none border border-line/70 bg-black/20 p-3">
+    <div className={className}>
       <h3 className="text-sm font-semibold text-slate-200">{title}</h3>
       <div
         className="relative mt-3 overflow-hidden"

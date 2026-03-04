@@ -18,7 +18,7 @@ export default async function FeedPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">13D/G Event Feed</h1>
         <p className="mt-2 text-sm text-slate-400">
           Daily-updated beneficial ownership event stream across the active institution universe.

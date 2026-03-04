@@ -15,6 +15,7 @@ type HeatmapPoint = {
 export type HoldingsHeatmapProps = {
   title: string;
   data: HeatmapPoint[];
+  containerClassName?: string;
   emptyText?: string;
   valueLabel?: string;
   deltaLabel?: string;
@@ -39,12 +40,19 @@ const HoldingsHeatmapRenderer = dynamic<HoldingsHeatmapProps>(
   }
 );
 
-export function NetAccumulationBarChart({ data }: { data: QuarterBarPoint[] }) {
+export function NetAccumulationBarChart({
+  data,
+  containerClassName
+}: {
+  data: QuarterBarPoint[];
+  containerClassName?: string;
+}) {
   const maxAbs = Math.max(1, ...data.map((x) => Math.abs(x.net_change_shares || 0)));
+  const rootClassName = containerClassName ? `chart-box ${containerClassName}` : "chart-box";
 
   return (
-    <div className="chart-box">
-      <h3>Holding Activity (Net Accumulation by Quarter)</h3>
+    <div className={rootClassName}>
+      <h3 className="text-lg font-semibold text-slate-100">Holding Activity (Net Accumulation by Quarter)</h3>
       <div style={{ minHeight: 280, display: "flex", alignItems: "flex-end", gap: 8, overflowX: "auto", paddingTop: 16 }}>
         {data.map((row) => {
           const h = Math.max(4, Math.round((Math.abs(row.net_change_shares || 0) / maxAbs) * 180));

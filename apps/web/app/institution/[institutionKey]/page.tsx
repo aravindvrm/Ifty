@@ -15,7 +15,7 @@ export default async function InstitutionPage({ params }: Props) {
     institution = await getInstitution(institutionKey);
   } catch (error) {
     return (
-      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Institution {institutionKey}</h1>
         <p className="mt-2 text-sm text-slate-400">Failed to load institution data.</p>
         <pre className="mt-3 overflow-auto rounded-none border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
@@ -51,7 +51,7 @@ export default async function InstitutionPage({ params }: Props) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none p-6 shadow-panel">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-100">

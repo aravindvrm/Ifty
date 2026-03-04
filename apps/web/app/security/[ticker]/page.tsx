@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import { HoldingsHeatmap, NetAccumulationBarChart } from "@/components/charts";
 import { SecurityActivePositionsTable } from "@/components/security-active-positions-table";
 import { TickerIcon } from "@/components/ticker-icon";
@@ -31,7 +29,7 @@ export default async function SecurityPage({ params, searchParams }: Props) {
     security = await getSecurity(ticker);
   } catch (error) {
     return (
-      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none p-6 shadow-panel">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Security: {ticker.toUpperCase()}</h1>
         <p className="mt-2 text-sm text-slate-400">Failed to load security data.</p>
         <pre className="mt-3 overflow-auto rounded-none border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
@@ -75,7 +73,7 @@ export default async function SecurityPage({ params, searchParams }: Props) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
+      <section className="rounded-none p-6 shadow-panel">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="inline-flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-100">
@@ -89,21 +87,7 @@ export default async function SecurityPage({ params, searchParams }: Props) {
           </div>
 
           <div className="w-full lg:max-w-[780px]">
-            <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-              <Link
-                href="/security"
-                className="rounded-none border border-line/80 bg-cardSoft/80 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white"
-              >
-                Search another security
-              </Link>
-              <Link
-                href="/institution"
-                className="rounded-none border border-line/80 bg-cardSoft/80 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-white"
-              >
-                Browse institutions
-              </Link>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
               <div className="rounded-none border border-line/80 bg-black/20 p-2.5">
                 <div className="text-[11px] text-slate-500">Holders</div>
                 <div className="mt-1 text-sm font-semibold text-slate-100">
@@ -176,6 +160,7 @@ export default async function SecurityPage({ params, searchParams }: Props) {
       <HoldingsHeatmap
         title="Institutional Holdings Heatmap"
         data={holdingsHeatmapData}
+        containerClassName="chart-box-plain"
         valueLabel="Value (13F)"
         deltaLabel="QoQ Δ Shares"
         labelMode="name"
@@ -190,7 +175,7 @@ export default async function SecurityPage({ params, searchParams }: Props) {
 
       <SecurityActivePositionsTable rows={security.active_positions ?? []} />
 
-      <NetAccumulationBarChart data={barData} />
+      <NetAccumulationBarChart data={barData} containerClassName="chart-box-plain" />
 
       <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
         <h2 className="text-lg font-semibold text-slate-100">13D/G Events Feed</h2>

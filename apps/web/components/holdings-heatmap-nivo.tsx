@@ -242,6 +242,7 @@ function NivoNode({ node }: any) {
 export function HoldingsHeatmapNivo({
   title,
   data,
+  containerClassName,
   emptyText = "No mapped positions available.",
   valueLabel = "Value",
   deltaLabel = "QoQ",
@@ -313,10 +314,11 @@ export function HoldingsHeatmapNivo({
 
   const height = Math.max(300, Math.min(620, Math.round(Math.max(360, containerWidth) * 0.58)));
   const treeData = { name: "root", children: prepared };
+  const rootClassName = containerClassName ? `chart-box ${containerClassName}` : "chart-box";
 
   return (
-    <div className="chart-box">
-      <h3>{title}</h3>
+    <div className={rootClassName}>
+      <h3 className="text-lg font-semibold text-slate-100">{title}</h3>
       <div className="heatmap-legend">
         <span><em className="heatmap-swatch heatmap-swatch-pos" /> Increased</span>
         <span><em className="heatmap-swatch heatmap-swatch-neg" /> Decreased</span>
