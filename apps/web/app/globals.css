@@ -11,6 +11,10 @@
   --grid: #223447;
   --line: #274157;
   --accent: #0ea5e9;
+  --bg-vignette-alpha: 0.30;
+  --bg-grain-dot-1: 0.16;
+  --bg-grain-dot-2: 0.10;
+  --bg-scanline-alpha: 0.08;
 }
 
 * {
@@ -31,7 +35,40 @@ body {
   margin: 0;
   color: var(--text);
   font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
-  background: #000000;
+  background-color: #000000;
+}
+
+body.bg-texture-grain {
+  background-image:
+    radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0) 34%,
+      rgba(0, 0, 0, var(--bg-vignette-alpha)) 100%
+    ),
+    radial-gradient(circle at 1px 1px, rgba(130, 152, 184, var(--bg-grain-dot-1)) 0.8px, transparent 1px),
+    radial-gradient(circle at 1px 1px, rgba(112, 136, 168, var(--bg-grain-dot-2)) 0.75px, transparent 1px);
+  background-size: 100% 100%, 3px 3px, 5px 5px;
+  background-position: center, 0 0, 1px 2px;
+  background-attachment: fixed;
+}
+
+body.bg-texture-scanline {
+  background-image:
+    radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0) 34%,
+      rgba(0, 0, 0, var(--bg-vignette-alpha)) 100%
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(112, 136, 170, var(--bg-scanline-alpha)) 0px,
+      rgba(112, 136, 170, var(--bg-scanline-alpha)) 1px,
+      transparent 1px,
+      transparent 4px
+    );
+  background-size: 100% 100%, 100% 4px;
+  background-position: center, top left;
+  background-attachment: fixed;
 }
 
 a {

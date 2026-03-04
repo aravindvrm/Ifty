@@ -47,11 +47,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const nav = useMemo(() => primaryNav, []);
 
   return (
-    <div className="min-h-screen bg-black text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <div className="flex min-h-screen">
         <aside
           className={[
-            "hidden md:flex flex-col border-r border-line/80 bg-black transition-all duration-300",
+            "hidden md:flex flex-col border-r border-line/80 bg-black/85 backdrop-blur-[1px] transition-all duration-300",
             sidebarWidth,
           ].join(" ")}
         >
@@ -96,7 +96,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-20 border-b border-line/80 bg-black">
+          <header className="sticky top-0 z-20 border-b border-line/80 bg-black/78 backdrop-blur-sm">
             <div className="flex h-16 items-center px-4 md:px-6">
               <div className="flex w-full items-center gap-3">
                 <TopLiveTape className="hidden min-w-0 flex-1 md:block" />
