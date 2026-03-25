@@ -1,4 +1,4 @@
-import { getApiUsage, getInstitutionUniverse, getPipelineRunLatest } from "@/lib/api";
+import { getAiObservability, getApiUsage, getInstitutionUniverse, getPipelineRunLatest } from "@/lib/api";
 import { fmtNumber } from "@/lib/format";
 import { OpsControls } from "@/components/ops-controls";
 
@@ -6,8 +6,14 @@ export default async function OpsPage() {
   let universe;
   let usage;
   let pipeline;
+  let aiObs;
   try {
-    [universe, usage, pipeline] = await Promise.all([getInstitutionUniverse(300), getApiUsage(7, 100), getPipelineRunLatest()]);
+    [universe, usage, pipeline, aiObs] = await Promise.all([
+      getInstitutionUniverse(300),
+      getApiUsage(7, 100),
+      getPipelineRunLatest(),
+      getAiObservability(7, 100),
+    ]);
   } catch (error) {
     return (
       <section className="rounded-none p-6 shadow-panel">
@@ -52,6 +58,124 @@ export default async function OpsPage() {
       </section>
 
       <OpsControls />
+
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
+          <h2 className="text-lg font-semibold text-slate-100">LLM Runtime Guardrails</h2>
+          <div className="mt-4 overflow-x-auto rounded-none border border-line/70">
+            <table className="min-w-full divide-y divide-line/60 text-sm">
+              <tbody>
+                <tr>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Enabled</th>
+                  <td className="px-3 py-2 text-slate-300">{aiObs.runtime.enabled ? "Yes" : "No"}</td>
+                </tr>
+                <tr>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Model</th>
+                  <td className="px-3 py-2 text-slate-300">{aiObs.runtime.model}</td>
+                </tr>
+                <tr>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Endpoint</th>
+                  <td className="px-3 py-2 text-slate-300">{aiObs.runtime.base_origin || "-"}</td>
+                </tr>
+                <tr>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">API Key</th>
+                  <td className="px-3 py-2 text-slate-300">{aiObs.runtime.api_key_configured ? "Configured" : "Missing"}</td>
+                </tr>
+                <tr>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Max Steps</th>
+                  <td className="px-3 py-2 text-slate-300">{fmtNumber(aiObs.runtime.max_steps)}</td>
+                </tr>
+                <tr>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Max Output Tokens</th>
+                  <td className="px-3 py-2 text-slate-300">{fmtNumber(aiObs.runtime.max_output_tokens)}</td>
+                </tr>
+                <tr>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">History Messages</th>
+                  <td className="px-3 py-2 text-slate-300">{fmtNumber(aiObs.runtime.max_history_messages)}</td>
+                </tr>
+                <tr>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Message Chars</th>
+                  <td className="px-3 py-2 text-slate-300">{fmtNumber(aiObs.runtime.max_message_chars)}</td>
+                </tr>
+                <tr>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">Tool Result Chars</th>
+                  <td className="px-3 py-2 text-slate-300">{fmtNumber(aiObs.runtime.max_tool_result_chars)}</td>
+                </tr>
+                <tr>
+                  <th className="bg-black/20 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">SQL Fallback</th>
+                  <td className="px-3 py-2 text-slate-300">{aiObs.runtime.sql_fallback_enabled ? "Enabled" : "Disabled"}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
+          <h2 className="text-lg font-semibold text-slate-100">LLM Request Health</h2>
+          <div className="mt-4 overflow-x-auto rounded-none border border-line/70">
+            <table className="min-w-full divide-y divide-line/60 text-sm">
+              <thead>
+                <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2">Window</th>
+                  <th className="px-3 py-2 text-right">Calls</th>
+                  <th className="px-3 py-2 text-right">Errors</th>
+                  <th className="px-3 py-2 text-right">Avg (ms)</th>
+                  <th className="px-3 py-2 text-right">P95 (ms)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line/50 text-slate-300">
+                {aiObs.usage_windows.map((row) => (
+                  <tr key={row.window}>
+                    <td className="px-3 py-2">{row.window}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(row.calls)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(row.error_calls)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(row.avg_latency_ms, 1)}</td>
+                    <td className="px-3 py-2 text-right">{row.p95_latency_ms == null ? "-" : fmtNumber(row.p95_latency_ms, 1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="overflow-x-auto rounded-none border border-line/70">
+              <table className="min-w-full divide-y divide-line/60 text-sm">
+                <thead>
+                  <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2 text-right">Calls</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line/50 text-slate-300">
+                  {aiObs.status_breakdown.map((row, i) => (
+                    <tr key={`${row.status_code ?? "null"}-${i}`}>
+                      <td className="px-3 py-2">{row.status_code ?? "-"}</td>
+                      <td className="px-3 py-2 text-right">{fmtNumber(row.calls)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="overflow-x-auto rounded-none border border-line/70">
+              <table className="min-w-full divide-y divide-line/60 text-sm">
+                <thead>
+                  <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <th className="px-3 py-2">Model</th>
+                    <th className="px-3 py-2 text-right">Calls (7d)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line/50 text-slate-300">
+                  {aiObs.model_calls.map((row) => (
+                    <tr key={row.model}>
+                      <td className="px-3 py-2">{row.model}</td>
+                      <td className="px-3 py-2 text-right">{fmtNumber(row.calls)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
         <h2 className="text-lg font-semibold text-slate-100">Latest Pipeline Run</h2>
@@ -180,6 +304,32 @@ export default async function OpsPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
+        <h2 className="text-lg font-semibold text-slate-100">Recent LLM Calls</h2>
+        <div className="mt-4 overflow-x-auto rounded-none border border-line/70">
+          <table className="min-w-full divide-y divide-line/60 text-sm">
+            <thead>
+              <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-2">Time</th>
+                <th className="px-3 py-2">Endpoint</th>
+                <th className="px-3 py-2 text-right">Status</th>
+                <th className="px-3 py-2 text-right">Latency (ms)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/50 text-slate-300">
+              {aiObs.recent.slice(0, 40).map((row, i) => (
+                <tr key={`${row.request_ts}-${i}`}>
+                  <td className="px-3 py-2">{row.request_ts}</td>
+                  <td className="px-3 py-2">{row.endpoint}</td>
+                  <td className="px-3 py-2 text-right">{row.status_code ?? "-"}</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(row.latency_ms ?? 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
     </div>

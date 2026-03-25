@@ -331,6 +331,46 @@ export type PipelineRunLatestResponse = {
   events: PipelineRunEvent[];
 };
 
+export type AiObservabilityResponse = {
+  runtime: {
+    enabled: boolean;
+    api_key_configured: boolean;
+    base_origin: string;
+    model: string;
+    temperature: number;
+    request_timeout_seconds: number;
+    max_steps: number;
+    sql_fallback_enabled: boolean;
+    max_output_tokens: number;
+    max_history_messages: number;
+    max_message_chars: number;
+    max_tool_result_chars: number;
+  };
+  usage_windows: Array<{
+    window: string;
+    calls: number;
+    ok_calls: number;
+    error_calls: number;
+    avg_latency_ms: number;
+    p95_latency_ms: number | null;
+  }>;
+  status_breakdown: Array<{
+    status_code: number | null;
+    calls: number;
+  }>;
+  model_calls: Array<{
+    model: string;
+    calls: number;
+  }>;
+  recent: Array<{
+    request_ts: string;
+    endpoint: string;
+    status_code: number | null;
+    ok: number;
+    latency_ms: number | null;
+  }>;
+};
+
 export type SecuritySearchResponse = {
   query: string;
   rows: Array<{
@@ -473,6 +513,10 @@ export function getApiUsage(days = 7, limitN = 100) {
 
 export function getPipelineRunLatest() {
   return requestJson<PipelineRunLatestResponse>("/ops/pipeline-runs/latest");
+}
+
+export function getAiObservability(days = 7, recentN = 100) {
+  return requestJson<AiObservabilityResponse>(`/ops/ai-observability?days=${days}&recent_n=${recentN}`);
 }
 
 export function searchSecurities(query: string, limitN = 20) {

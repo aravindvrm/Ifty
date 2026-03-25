@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 import time
 
+from app.api.ai_routes import router as ai_router
 from app.api.routes import router
 from app.db import ensure_schema_and_seed, get_engine
 from app.config import get_settings
@@ -30,6 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+app.include_router(ai_router)
 _log = logging.getLogger("flow.api")
 
 

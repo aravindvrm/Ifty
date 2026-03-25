@@ -1,6 +1,8 @@
 from datetime import UTC, date, datetime, timedelta
 import json
+from math import ceil, floor
 import re
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import bindparam, text
@@ -73,6 +75,28 @@ def _derive_feed_security_display(row: dict[str, object]) -> str | None:
         return issuer_name
 
     return None
+
+
+def _percentile(values: list[float], pct: float) -> float | None:
+    if not values:
+        return None
+    p = max(0.0, min(100.0, float(pct)))
+    sorted_values = sorted(values)
+    pos = (len(sorted_values) - 1) * (p / 100.0)
+    low = floor(pos)
+    high = ceil(pos)
+    if low == high:
+        return float(sorted_values[low])
+    low_v = float(sorted_values[low])
+    high_v = float(sorted_values[high])
+    return low_v + (high_v - low_v) * (pos - low)
+
+
+def _safe_origin(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return url
 
 
 def _split_factor_between(db: Session, security_id: int, prev_date: str, curr_date: str) -> float:
@@ -685,6 +709,136 @@ def api_usage(
         {"limit_n": limit_n},
     ).mappings().all()
     return {"summary": [dict(x) for x in summary], "recent": [dict(x) for x in recent]}
+
+
+@router.get("/ops/ai-observability")
+def ai_observability(
+    days: int = Query(7, ge=1, le=90),
+    recent_n: int = Query(100, ge=20, le=500),
+    db: Session = Depends(get_db),
+) -> dict:
+    settings = get_settings()
+    now = datetime.now(UTC)
+    cutoff_24h = (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+    cutoff_window = (now - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    def _window_metrics(cutoff: str, label: str) -> dict:
+        row = db.execute(
+            text(
+                """
+                SELECT
+                  COUNT(*) AS calls,
+                  SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) AS ok_calls,
+                  SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS error_calls,
+                  AVG(COALESCE(latency_ms, 0)) AS avg_latency_ms
+                FROM api_request_log
+                WHERE provider = 'AI'
+                  AND request_ts >= :cutoff
+                """
+            ),
+            {"cutoff": cutoff},
+        ).mappings().first() or {}
+        latencies = [
+            float(x[0])
+            for x in db.execute(
+                text(
+                    """
+                    SELECT latency_ms
+                    FROM api_request_log
+                    WHERE provider = 'AI'
+                      AND request_ts >= :cutoff
+                      AND latency_ms IS NOT NULL
+                    ORDER BY request_id DESC
+                    LIMIT 5000
+                    """
+                ),
+                {"cutoff": cutoff},
+            ).all()
+            if x and x[0] is not None
+        ]
+        return {
+            "window": label,
+            "calls": int(row.get("calls") or 0),
+            "ok_calls": int(row.get("ok_calls") or 0),
+            "error_calls": int(row.get("error_calls") or 0),
+            "avg_latency_ms": float(row.get("avg_latency_ms") or 0.0),
+            "p95_latency_ms": _percentile(latencies, 95.0),
+        }
+
+    status_rows = db.execute(
+        text(
+            """
+            SELECT status_code, COUNT(*) AS calls
+            FROM api_request_log
+            WHERE provider = 'AI'
+              AND request_ts >= :cutoff
+            GROUP BY status_code
+            ORDER BY calls DESC
+            """
+        ),
+        {"cutoff": cutoff_window},
+    ).mappings().all()
+
+    endpoint_rows = db.execute(
+        text(
+            """
+            SELECT endpoint, COUNT(*) AS calls
+            FROM api_request_log
+            WHERE provider = 'AI'
+              AND request_ts >= :cutoff
+            GROUP BY endpoint
+            ORDER BY calls DESC
+            LIMIT 200
+            """
+        ),
+        {"cutoff": cutoff_window},
+    ).mappings().all()
+    model_call_counts: dict[str, int] = {}
+    for row in endpoint_rows:
+        endpoint = str(row.get("endpoint") or "")
+        match = re.search(r"model=([^\s]+)", endpoint)
+        model = match.group(1) if match else "unknown"
+        model_call_counts[model] = model_call_counts.get(model, 0) + int(row.get("calls") or 0)
+
+    recent_rows = db.execute(
+        text(
+            """
+            SELECT request_ts, endpoint, status_code, ok, latency_ms
+            FROM api_request_log
+            WHERE provider = 'AI'
+            ORDER BY request_id DESC
+            LIMIT :limit_n
+            """
+        ),
+        {"limit_n": recent_n},
+    ).mappings().all()
+
+    return {
+        "runtime": {
+            "enabled": bool(settings.ai_enabled),
+            "api_key_configured": bool((settings.ai_api_key or "").strip()),
+            "base_origin": _safe_origin(settings.ai_base_url or ""),
+            "model": settings.ai_model,
+            "temperature": settings.ai_temperature,
+            "request_timeout_seconds": settings.ai_request_timeout_seconds,
+            "max_steps": settings.ai_max_steps,
+            "sql_fallback_enabled": settings.ai_sql_fallback_enabled,
+            "max_output_tokens": settings.ai_max_output_tokens,
+            "max_history_messages": settings.ai_max_history_messages,
+            "max_message_chars": settings.ai_max_message_chars,
+            "max_tool_result_chars": settings.ai_tool_result_max_chars,
+        },
+        "usage_windows": [
+            _window_metrics(cutoff_24h, "24h"),
+            _window_metrics(cutoff_window, f"{days}d"),
+        ],
+        "status_breakdown": [dict(x) for x in status_rows],
+        "model_calls": [
+            {"model": model, "calls": calls}
+            for model, calls in sorted(model_call_counts.items(), key=lambda x: x[1], reverse=True)
+        ],
+        "recent": [dict(x) for x in recent_rows],
+    }
 
 
 @router.get("/ops/pipeline-runs/latest")

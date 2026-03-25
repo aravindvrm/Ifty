@@ -32,6 +32,18 @@ class Settings(BaseSettings):
     aum_top_n_default: int = 100
     api_cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     retention_13dg_days: int = 120
+    ai_enabled: bool = False
+    ai_base_url: str = "http://127.0.0.1:1234/v1"
+    ai_api_key: str = ""
+    ai_model: str = "gpt-4o-mini"
+    ai_temperature: float = 0.1
+    ai_request_timeout_seconds: float = 45.0
+    ai_max_steps: int = 6
+    ai_sql_fallback_enabled: bool = False
+    ai_max_output_tokens: int = 700
+    ai_max_history_messages: int = 12
+    ai_max_message_chars: int = 2000
+    ai_tool_result_max_chars: int = 1800
 
 
 @lru_cache

@@ -17,6 +17,7 @@ import {
 
 import { EntitySearchInput } from "@/components/entity-search-input";
 import { TopLiveTape } from "@/components/top-live-tape";
+import { AiChatWidget } from "@/components/ai-chat-widget";
 
 type NavItem = {
   href: string;
@@ -104,7 +105,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div className="app-main-scroll min-h-0 flex-1 overflow-y-auto">
-            <header className="sticky top-0 z-20 border-b border-line/60 bg-black/45 backdrop-blur-md backdrop-saturate-150 supports-[backdrop-filter]:bg-black/30">
+            <header className="sticky top-0 z-20 border-b border-line/90 bg-black/45 shadow-[inset_0_-1px_0_rgba(39,65,87,0.55)] backdrop-blur-md backdrop-saturate-150 supports-[backdrop-filter]:bg-black/30">
               <div className="flex h-16 items-center px-4 md:px-6">
                 <div className="flex w-full items-center gap-3">
                   <TopLiveTape className="hidden min-w-0 flex-1 md:block" />
@@ -129,6 +130,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </div>
+      <AiChatWidget />
     </div>
   );
 }
