@@ -1,22 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Sixtyfour_Convergence } from "next/font/google";
-import { useMemo } from "react";
 
-import { TopLiveTape } from "@/components/top-live-tape";
 import { AiChatWidget } from "@/components/ai-chat-widget";
-
-type NavItem = {
-  href: string;
-  label: string;
-};
-
-const topNav: NavItem[] = [
-  { href: "/feed", label: "13D/G" },
-  { href: "/institution", label: "Institutions" },
-];
+import { InitialLoadOverlay } from "@/components/initial-load-overlay";
 
 const iftyWordmarkFont = Sixtyfour_Convergence({
   subsets: ["latin"],
@@ -26,42 +15,40 @@ const iftyWordmarkFont = Sixtyfour_Convergence({
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const nav = useMemo(() => topNav, []);
+  const searchParams = useSearchParams();
+  const selectedType = searchParams.get("type");
+  const selectedKey = searchParams.get("key");
+  const hasEntitySelection = Boolean(selectedType && selectedKey);
+  const showInitialOverlay = pathname === "/explore" && !hasEntitySelection;
 
   return (
     <div className="h-screen overflow-hidden text-slate-100">
+      {showInitialOverlay ? <InitialLoadOverlay /> : null}
+
+      <Link
+        href="/explore"
+        className="brand-link fixed left-4 top-4 z-30 inline-flex shrink-0 items-center px-1 py-1.5 md:left-6 md:top-5"
+        style={{ color: "#f8fafc", WebkitTextFillColor: "#f8fafc" }}
+      >
+        <span
+          className={`${iftyWordmarkFont.className} brand-wordmark text-2xl tracking-wide text-slate-100`}
+          style={{ color: "#f8fafc", WebkitTextFillColor: "#f8fafc" }}
+        >
+          Ifty
+        </span>
+      </Link>
+
       <div className="app-main-scroll h-full overflow-y-auto">
-        <header className="sticky top-0 z-20 bg-black/45 backdrop-blur-md backdrop-saturate-150 supports-[backdrop-filter]:bg-black/30">
-          <div className="flex h-16 items-center gap-4 px-4 md:px-6">
-            <Link href="/explore" className="inline-flex shrink-0 items-center px-1 py-1.5">
-              <span className={`${iftyWordmarkFont.className} text-2xl tracking-wide text-slate-100`}>Ifty</span>
+        <main className="mx-auto w-full max-w-[1600px] px-4 pb-5 pt-20 md:px-6 md:pb-6 md:pt-24 lg:px-8">{children}</main>
+
+        <footer className="border-t border-line/70 bg-black/20">
+          <div className="mx-auto flex h-12 w-full max-w-[1600px] items-center justify-between px-4 text-xs text-slate-500 md:px-6 lg:px-8">
+            <span>Ifty</span>
+            <Link href="/institution" className="text-slate-300 transition hover:text-white">
+              Institution Directory
             </Link>
-
-            <TopLiveTape className="hidden min-w-0 flex-1 md:block" />
-
-            <nav className="ml-auto flex items-center gap-4">
-              {nav.map((item) => {
-                const active = pathname === item.href || pathname?.startsWith(`${item.href}/`);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={[
-                      "px-1 py-1.5 text-sm transition-colors",
-                      active
-                        ? "text-accentBlue"
-                        : "text-slate-300 hover:text-slate-100",
-                    ].join(" ")}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
           </div>
-        </header>
-
-        <main className="mx-auto w-full max-w-[1600px] px-4 py-5 md:px-6 md:py-6 lg:px-8">{children}</main>
+        </footer>
       </div>
 
       <AiChatWidget />

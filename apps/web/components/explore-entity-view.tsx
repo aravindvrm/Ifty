@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { HoldingsHeatmap, NetAccumulationBarChart } from "@/components/charts";
@@ -7,9 +8,11 @@ import { LottieLoader } from "@/components/lottie-loader";
 import { SecurityActivePositionsTable } from "@/components/security-active-positions-table";
 import { TickerIcon } from "@/components/ticker-icon";
 import {
+  get13DGFeed,
   getInstitution,
   getSecurity,
   getSecurityEventsFiltered,
+  type Feed13DGResponse,
   type InstitutionPageResponse,
   type SecurityEventResponse,
   type SecurityPageResponse,
@@ -35,12 +38,41 @@ function defaultEvents(): SecurityEventResponse {
   };
 }
 
+type FeedRow = Feed13DGResponse["rows"][number];
+
+function toEventClass(eventType: string): string {
+  const value = (eventType || "").toUpperCase();
+  const base = "inline-flex rounded-none border px-2 py-0.5 text-[11px]";
+  if (value === "NEW_5PCT" || value === "AMENDMENT_UP") {
+    return `${base} border-emerald-400/40 bg-emerald-400/10 text-emerald-300`;
+  }
+  if (value === "EXIT_5PCT" || value === "AMENDMENT_DOWN") {
+    return `${base} border-rose-400/40 bg-rose-400/10 text-rose-300`;
+  }
+  return `${base} border-slate-500/50 bg-slate-500/10 text-slate-300`;
+}
+
+function displayFeedSecurity(row: FeedRow): string {
+  return row.security_display || row.ticker || row.security_name || row.issuer_name_raw || row.cusip_raw || "-";
+}
+
+function formatPercentChange(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "-";
+  }
+  const n = Number(value);
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(2)}%`;
+}
+
 export function ExploreEntityView({ selection }: { selection: ExploreSelection | null }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [security, setSecurity] = useState<SecurityPageResponse | null>(null);
   const [institution, setInstitution] = useState<InstitutionPageResponse | null>(null);
   const [events, setEvents] = useState<SecurityEventResponse>(defaultEvents());
+  const [institutionFeedRows, setInstitutionFeedRows] = useState<FeedRow[]>([]);
+  const [institutionFeedError, setInstitutionFeedError] = useState("");
 
   const selectionToken = selection ? `${selection.type}:${selection.key}` : "";
 
@@ -54,6 +86,8 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
         setSecurity(null);
         setInstitution(null);
         setEvents(defaultEvents());
+        setInstitutionFeedRows([]);
+        setInstitutionFeedError("");
         return;
       }
 
@@ -62,6 +96,8 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
       setSecurity(null);
       setInstitution(null);
       setEvents(defaultEvents());
+      setInstitutionFeedRows([]);
+      setInstitutionFeedError("");
 
       try {
         if (selection.type === "security") {
@@ -78,9 +114,31 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
           setSecurity(securityResponse);
           setEvents(eventsResponse);
         } else {
-          const institutionResponse = await getInstitution(selection.key);
+          const [institutionResult, feedResult] = await Promise.allSettled([
+            getInstitution(selection.key),
+            get13DGFeed({
+              days: 3650,
+              limitN: 200,
+              includeOther: false,
+              mappedOnly: true,
+              universeOnly: true,
+              includeLowQuality: false,
+              managerKey: selection.key,
+            }),
+          ]);
           if (cancelled) return;
+          if (institutionResult.status !== "fulfilled") {
+            throw institutionResult.reason;
+          }
+          const institutionResponse = institutionResult.value;
           setInstitution(institutionResponse);
+          if (feedResult.status === "fulfilled") {
+            setInstitutionFeedRows(feedResult.value.rows ?? []);
+            setInstitutionFeedError("");
+          } else {
+            setInstitutionFeedRows([]);
+            setInstitutionFeedError(String(feedResult.reason ?? "Feed unavailable"));
+          }
         }
       } catch (err) {
         if (cancelled) return;
@@ -164,7 +222,6 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
       <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
         <div className="explore-entity-loading">
           <LottieLoader size={170} className="explore-loading-lottie" />
-          <p className="text-sm text-slate-300">Loading {selection.type} view...</p>
         </div>
       </section>
     );
@@ -323,7 +380,19 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
                 {(events.rows ?? []).map((event, idx) => (
                   <tr key={`${event.accession_no}-${idx}`}>
                     <td className="px-3 py-2">{event.report_date}</td>
-                    <td className="px-3 py-2">{event.manager_name ?? "Unknown"}</td>
+                    <td className="px-3 py-2">
+                      {event.manager_id ? (
+                        <Link
+                          prefetch={false}
+                          href={`/explore?type=institution&key=${encodeURIComponent(String(event.manager_id))}`}
+                          className="text-accentBlue hover:text-white"
+                        >
+                          {event.manager_name ?? `Institution ${event.manager_id}`}
+                        </Link>
+                      ) : (
+                        event.manager_name ?? "Unknown"
+                      )}
+                    </td>
                     <td className="px-3 py-2">{event.event_type}</td>
                     <td className="px-3 py-2 text-right">
                       {event.percent_beneficial_owned === null ? "-" : `${event.percent_beneficial_owned.toFixed(2)}%`}
@@ -416,7 +485,21 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
                 ) : (
                   institutionTopBuys.map((row, idx) => (
                     <tr key={`${row.security_id}-${idx}`}>
-                      <td className="px-3 py-2">{row.issuer_name_raw ?? "Unknown"}</td>
+                      <td className="px-3 py-2">
+                        {row.ticker ? (
+                          <Link
+                            prefetch={false}
+                            href={`/security/${encodeURIComponent(row.ticker)}`}
+                            className="inline-flex min-w-0 items-center gap-2 text-accentBlue hover:text-white"
+                          >
+                            <TickerIcon ticker={row.ticker} label={row.issuer_name_raw} />
+                            <span className="font-medium">{row.ticker}</span>
+                            <span className="truncate text-slate-400">- {row.issuer_name_raw ?? "Unknown"}</span>
+                          </Link>
+                        ) : (
+                          row.issuer_name_raw ?? "Unknown"
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right text-emerald-300">{fmtUsdThousands(row.delta_val)}</td>
                     </tr>
                   ))
@@ -446,7 +529,21 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
                 ) : (
                   institutionTopSells.map((row, idx) => (
                     <tr key={`${row.security_id}-${idx}`}>
-                      <td className="px-3 py-2">{row.issuer_name_raw ?? "Unknown"}</td>
+                      <td className="px-3 py-2">
+                        {row.ticker ? (
+                          <Link
+                            prefetch={false}
+                            href={`/security/${encodeURIComponent(row.ticker)}`}
+                            className="inline-flex min-w-0 items-center gap-2 text-accentBlue hover:text-white"
+                          >
+                            <TickerIcon ticker={row.ticker} label={row.issuer_name_raw} />
+                            <span className="font-medium">{row.ticker}</span>
+                            <span className="truncate text-slate-400">- {row.issuer_name_raw ?? "Unknown"}</span>
+                          </Link>
+                        ) : (
+                          row.issuer_name_raw ?? "Unknown"
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right text-rose-300">{fmtUsdThousands(row.delta_val)}</td>
                     </tr>
                   ))
@@ -480,17 +577,92 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
                   <tr key={`${row.security_id}-${idx}`}>
                     <td className="px-3 py-2">
                       {row.ticker ? (
-                        <span className="inline-flex min-w-0 items-center gap-2">
+                        <Link
+                          prefetch={false}
+                          href={`/security/${encodeURIComponent(row.ticker)}`}
+                          className="inline-flex min-w-0 items-center gap-2 text-accentBlue hover:text-white"
+                        >
                           <TickerIcon ticker={row.ticker} label={row.issuer_name_raw} />
-                          <span className="font-medium text-accentBlue">{row.ticker}</span>
+                          <span className="font-medium">{row.ticker}</span>
                           <span className="truncate text-slate-400">- {row.issuer_name_raw ?? "Unknown"}</span>
-                        </span>
+                        </Link>
                       ) : (
                         row.issuer_name_raw ?? "Unknown"
                       )}
                     </td>
                     <td className="px-3 py-2 text-right">{fmtNumber(row.shares)}</td>
                     <td className="px-3 py-2 text-right">{fmtUsdThousands(row.value_usd_thousands)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
+        <h2 className="text-lg font-semibold text-slate-100">13D/G Activity</h2>
+        <div className="mt-4 overflow-x-auto rounded-none border border-line/70">
+          <table className="min-w-full divide-y divide-line/60 text-sm">
+            <thead>
+              <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-2">Date</th>
+                <th className="px-3 py-2">Event</th>
+                <th className="px-3 py-2">Security</th>
+                <th className="px-3 py-2 text-right">% Owned</th>
+                <th className="px-3 py-2 text-right">% Δ Owned</th>
+                <th className="px-3 py-2">Form</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/50 text-slate-300">
+              {institutionFeedRows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-4 text-center text-sm text-slate-500">
+                    {institutionFeedError ? `13D/G feed unavailable: ${institutionFeedError}` : "No 13D/G events found."}
+                  </td>
+                </tr>
+              ) : (
+                institutionFeedRows.map((row) => (
+                  <tr key={`institution-13dg-${row.bo_event_id}`}>
+                    <td className="px-3 py-2 text-xs text-slate-400">{row.report_date}</td>
+                    <td className="px-3 py-2">
+                      <span className={toEventClass(row.event_type)}>{row.event_type}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      {row.ticker ? (
+                        <Link
+                          prefetch={false}
+                          href={`/security/${encodeURIComponent(row.ticker)}`}
+                          className="inline-flex min-w-0 items-center gap-2 text-accentBlue hover:text-white"
+                        >
+                          <TickerIcon ticker={row.ticker} label={displayFeedSecurity(row)} />
+                          <span className="font-medium">{row.ticker}</span>
+                          <span className="truncate text-slate-400">- {displayFeedSecurity(row)}</span>
+                        </Link>
+                      ) : (
+                        displayFeedSecurity(row)
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {row.percent_beneficial_owned === null || row.percent_beneficial_owned === undefined
+                        ? "-"
+                        : `${Number(row.percent_beneficial_owned).toFixed(2)}%`}
+                    </td>
+                    <td
+                      className={[
+                        "px-3 py-2 text-right",
+                        row.percent_beneficial_change === null || row.percent_beneficial_change === undefined
+                          ? "text-slate-500"
+                          : row.percent_beneficial_change > 0
+                            ? "text-emerald-300"
+                            : row.percent_beneficial_change < 0
+                              ? "text-rose-300"
+                              : "text-slate-300",
+                      ].join(" ")}
+                    >
+                      {formatPercentChange(row.percent_beneficial_change)}
+                    </td>
+                    <td className="px-3 py-2">{row.form_type}</td>
                   </tr>
                 ))
               )}

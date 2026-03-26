@@ -1,4 +1,5 @@
 import { FlowDistributionHistogram } from "@/components/flow-distribution-histogram";
+import { Top13DGColumn } from "@/components/top-13dg-column";
 import { TopMoversColumn } from "@/components/top-movers-column";
 import { getHomeOverview } from "@/lib/api";
 import { fmtNumber, fmtUsd } from "@/lib/format";
@@ -47,7 +48,7 @@ export async function MarketPulseView() {
     <div className="space-y-10">
       <section>
         <article className="rounded-none p-5 shadow-panel">
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3 xl:gap-0">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-4 xl:gap-0">
             {columns.map((column, index) => (
               <div
                 key={column.key}
@@ -56,6 +57,9 @@ export async function MarketPulseView() {
                 <TopMoversColumn title={column.title} columnKey={column.key} rows={column.rows} />
               </div>
             ))}
+            <div className="xl:border-l xl:border-line/70 xl:pl-3">
+              <Top13DGColumn title="13 D/G Activity" />
+            </div>
           </div>
         </article>
       </section>

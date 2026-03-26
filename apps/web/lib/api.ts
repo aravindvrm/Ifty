@@ -1,14 +1,26 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+const SERVER_API_BASE =
+  process.env.API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+const CLIENT_API_BASE = "/api/backend";
 const FETCH_TIMEOUT_MS = 15000;
+
+function getApiBase(): string {
+  return typeof window === "undefined" ? SERVER_API_BASE : CLIENT_API_BASE;
+}
 
 async function requestJson<T>(path: string): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const base = getApiBase();
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, { cache: "no-store", signal: controller.signal });
+    response = await fetch(`${base}${path}`, { cache: "no-store", signal: controller.signal });
   } catch (error) {
-    const localhostBase = API_BASE.includes("localhost") ? API_BASE : "";
+    // Server-side fallback when localhost DNS lookup fails.
+    if (typeof window !== "undefined") {
+      clearTimeout(timeout);
+      throw error;
+    }
+    const localhostBase = base.includes("localhost") ? base : "";
     if (!localhostBase) {
       clearTimeout(timeout);
       throw error;
@@ -79,6 +91,7 @@ export type SecurityEventResponse = {
     shares_beneficial_owned: number | null;
     cusip_raw: string | null;
     mapping_status: string;
+    manager_id: number | null;
     manager_name: string | null;
     form_type: string;
     accession_no: string;
@@ -103,12 +116,14 @@ export type ManagerPageResponse = {
     security_id: number;
     issuer_name_raw: string | null;
     class_title_raw: string | null;
+    ticker?: string | null;
     delta_val: number;
   }>;
   top_sells: Array<{
     security_id: number;
     issuer_name_raw: string | null;
     class_title_raw: string | null;
+    ticker?: string | null;
     delta_val: number;
   }>;
   metrics: {
@@ -394,6 +409,7 @@ export type Feed13DGResponse = {
     form_type: string | null;
     include_other: number;
     mapped_only: number;
+    universe_only: number;
     include_low_quality: number;
     ticker: string | null;
     manager_key: string | null;
@@ -408,6 +424,8 @@ export type Feed13DGResponse = {
     report_date: string;
     event_type: string;
     percent_beneficial_owned: number | null;
+    prev_percent_beneficial_owned: number | null;
+    percent_beneficial_change: number | null;
     shares_beneficial_owned: number | null;
     mapping_status: string;
     mapping_confidence: number | null;
@@ -415,6 +433,7 @@ export type Feed13DGResponse = {
     ticker_raw: string | null;
     manager_id: number | null;
     manager_name: string | null;
+    manager_in_universe: number;
     security_id: number | null;
     security_name: string | null;
     issuer_name_raw: string | null;
@@ -545,6 +564,7 @@ export function get13DGFeed(
     formType?: string;
     includeOther?: boolean;
     mappedOnly?: boolean;
+    universeOnly?: boolean;
     includeLowQuality?: boolean;
     ticker?: string;
     managerKey?: string;
@@ -560,6 +580,7 @@ export function get13DGFeed(
   if (options?.formType) params.set("form_type", options.formType);
   if (options?.includeOther !== undefined) params.set("include_other", options.includeOther ? "1" : "0");
   if (options?.mappedOnly !== undefined) params.set("mapped_only", options.mappedOnly ? "1" : "0");
+  if (options?.universeOnly !== undefined) params.set("universe_only", options.universeOnly ? "1" : "0");
   if (options?.includeLowQuality !== undefined) params.set("include_low_quality", options.includeLowQuality ? "1" : "0");
   if (options?.ticker) params.set("ticker", options.ticker.toUpperCase());
   if (options?.managerKey) params.set("manager_key", options.managerKey);

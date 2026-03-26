@@ -2,10 +2,37 @@ import Link from "next/link";
 
 import { HoldingsHeatmap } from "@/components/charts";
 import { TickerIcon } from "@/components/ticker-icon";
-import { getInstitution } from "@/lib/api";
+import { get13DGFeed, getInstitution, type Feed13DGResponse } from "@/lib/api";
 import { fmtNumber, fmtPct, fmtUsd, fmtUsdThousands } from "@/lib/format";
 
 type Props = { params: Promise<{ institutionKey: string }> };
+
+type FeedRow = Feed13DGResponse["rows"][number];
+
+function toEventClass(eventType: string): string {
+  const value = (eventType || "").toUpperCase();
+  const base = "inline-flex rounded-none border px-2 py-0.5 text-[11px]";
+  if (value === "NEW_5PCT" || value === "AMENDMENT_UP") {
+    return `${base} border-emerald-400/40 bg-emerald-400/10 text-emerald-300`;
+  }
+  if (value === "EXIT_5PCT" || value === "AMENDMENT_DOWN") {
+    return `${base} border-rose-400/40 bg-rose-400/10 text-rose-300`;
+  }
+  return `${base} border-slate-500/50 bg-slate-500/10 text-slate-300`;
+}
+
+function displayFeedSecurity(row: FeedRow): string {
+  return row.security_display || row.ticker || row.security_name || row.issuer_name_raw || row.cusip_raw || "-";
+}
+
+function formatPercentChange(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "-";
+  }
+  const n = Number(value);
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(2)}%`;
+}
 
 export default async function InstitutionPage({ params }: Props) {
   const { institutionKey } = await params;
@@ -23,6 +50,23 @@ export default async function InstitutionPage({ params }: Props) {
         </pre>
       </section>
     );
+  }
+
+  let institutionFeedRows: FeedRow[] = [];
+  let institutionFeedError: string | null = null;
+  try {
+    const feed = await get13DGFeed({
+      days: 3650,
+      limitN: 200,
+      includeOther: false,
+      mappedOnly: true,
+      universeOnly: true,
+      includeLowQuality: false,
+      managerKey: institutionKey,
+    });
+    institutionFeedRows = feed.rows ?? [];
+  } catch (error) {
+    institutionFeedError = String(error);
   }
 
   const deltaBySecurityId = new Map<number, number>();
@@ -127,7 +171,21 @@ export default async function InstitutionPage({ params }: Props) {
                 ) : (
                   institution.top_buys.map((row, idx) => (
                     <tr key={`${row.security_id}-${idx}`}>
-                      <td className="px-3 py-2">{row.issuer_name_raw ?? "Unknown"}</td>
+                      <td className="px-3 py-2">
+                        {row.ticker ? (
+                          <Link
+                            prefetch={false}
+                            href={`/security/${encodeURIComponent(row.ticker)}`}
+                            className="inline-flex min-w-0 items-center gap-2 text-accentBlue hover:text-white"
+                          >
+                            <TickerIcon ticker={row.ticker} label={row.issuer_name_raw} />
+                            <span className="font-medium">{row.ticker}</span>
+                            <span className="truncate text-slate-400">- {row.issuer_name_raw ?? "Unknown"}</span>
+                          </Link>
+                        ) : (
+                          row.issuer_name_raw ?? "Unknown"
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right text-emerald-300">{fmtUsdThousands(row.delta_val)}</td>
                     </tr>
                   ))
@@ -157,7 +215,21 @@ export default async function InstitutionPage({ params }: Props) {
                 ) : (
                   institution.top_sells.map((row, idx) => (
                     <tr key={`${row.security_id}-${idx}`}>
-                      <td className="px-3 py-2">{row.issuer_name_raw ?? "Unknown"}</td>
+                      <td className="px-3 py-2">
+                        {row.ticker ? (
+                          <Link
+                            prefetch={false}
+                            href={`/security/${encodeURIComponent(row.ticker)}`}
+                            className="inline-flex min-w-0 items-center gap-2 text-accentBlue hover:text-white"
+                          >
+                            <TickerIcon ticker={row.ticker} label={row.issuer_name_raw} />
+                            <span className="font-medium">{row.ticker}</span>
+                            <span className="truncate text-slate-400">- {row.issuer_name_raw ?? "Unknown"}</span>
+                          </Link>
+                        ) : (
+                          row.issuer_name_raw ?? "Unknown"
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right text-rose-300">{fmtUsdThousands(row.delta_val)}</td>
                     </tr>
                   ))
@@ -191,17 +263,92 @@ export default async function InstitutionPage({ params }: Props) {
                   <tr key={`${row.security_id}-${idx}`}>
                     <td className="px-3 py-2">
                       {row.ticker ? (
-                        <span className="inline-flex min-w-0 items-center gap-2">
+                        <Link
+                          prefetch={false}
+                          href={`/security/${encodeURIComponent(row.ticker)}`}
+                          className="inline-flex min-w-0 items-center gap-2 text-accentBlue hover:text-white"
+                        >
                           <TickerIcon ticker={row.ticker} label={row.issuer_name_raw} />
-                          <span className="font-medium text-accentBlue">{row.ticker}</span>
+                          <span className="font-medium">{row.ticker}</span>
                           <span className="truncate text-slate-400">- {row.issuer_name_raw ?? "Unknown"}</span>
-                        </span>
+                        </Link>
                       ) : (
                         row.issuer_name_raw ?? "Unknown"
                       )}
                     </td>
                     <td className="px-3 py-2 text-right">{fmtNumber(row.shares)}</td>
                     <td className="px-3 py-2 text-right">{fmtUsdThousands(row.value_usd_thousands)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
+        <h2 className="text-lg font-semibold text-slate-100">13D/G Activity</h2>
+        <div className="mt-4 overflow-x-auto rounded-none border border-line/70">
+          <table className="min-w-full divide-y divide-line/60 text-sm">
+            <thead>
+              <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-2">Date</th>
+                <th className="px-3 py-2">Event</th>
+                <th className="px-3 py-2">Security</th>
+                <th className="px-3 py-2 text-right">% Owned</th>
+                <th className="px-3 py-2 text-right">% Δ Owned</th>
+                <th className="px-3 py-2">Form</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/50 text-slate-300">
+              {institutionFeedRows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-4 text-center text-sm text-slate-500">
+                    {institutionFeedError ? `13D/G feed unavailable: ${institutionFeedError}` : "No 13D/G events found."}
+                  </td>
+                </tr>
+              ) : (
+                institutionFeedRows.map((row) => (
+                  <tr key={`institution-13dg-${row.bo_event_id}`}>
+                    <td className="px-3 py-2 text-xs text-slate-400">{row.report_date}</td>
+                    <td className="px-3 py-2">
+                      <span className={toEventClass(row.event_type)}>{row.event_type}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      {row.ticker ? (
+                        <Link
+                          prefetch={false}
+                          href={`/security/${encodeURIComponent(row.ticker)}`}
+                          className="inline-flex min-w-0 items-center gap-2 text-accentBlue hover:text-white"
+                        >
+                          <TickerIcon ticker={row.ticker} label={displayFeedSecurity(row)} />
+                          <span className="font-medium">{row.ticker}</span>
+                          <span className="truncate text-slate-400">- {displayFeedSecurity(row)}</span>
+                        </Link>
+                      ) : (
+                        displayFeedSecurity(row)
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {row.percent_beneficial_owned === null || row.percent_beneficial_owned === undefined
+                        ? "-"
+                        : `${Number(row.percent_beneficial_owned).toFixed(2)}%`}
+                    </td>
+                    <td
+                      className={[
+                        "px-3 py-2 text-right",
+                        row.percent_beneficial_change === null || row.percent_beneficial_change === undefined
+                          ? "text-slate-500"
+                          : row.percent_beneficial_change > 0
+                            ? "text-emerald-300"
+                            : row.percent_beneficial_change < 0
+                              ? "text-rose-300"
+                              : "text-slate-300",
+                      ].join(" ")}
+                    >
+                      {formatPercentChange(row.percent_beneficial_change)}
+                    </td>
+                    <td className="px-3 py-2">{row.form_type}</td>
                   </tr>
                 ))
               )}

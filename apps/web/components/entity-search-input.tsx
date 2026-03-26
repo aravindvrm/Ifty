@@ -129,7 +129,7 @@ export function EntitySearchInput({
             cik: row.cik ?? "",
             manager_name: row.manager_name ?? "",
           })
-        : `/institution/${encodeURIComponent(String(row.manager_id))}`,
+        : `/explore?type=institution&key=${encodeURIComponent(String(row.manager_id))}`,
       primary: row.manager_name,
       secondary: row.cik ?? "CIK -",
       kind: "institution",

@@ -77,7 +77,7 @@ export default async function InstitutionDirectoryPage({ searchParams }: Props) 
                     <td className="px-3 py-2">
                       <Link
                         prefetch={false}
-                        href={`/institution/${encodeURIComponent(String(row.manager_id))}`}
+                        href={`/explore?type=institution&key=${encodeURIComponent(String(row.manager_id))}`}
                         className="text-accentBlue hover:text-white"
                       >
                         {row.manager_name}

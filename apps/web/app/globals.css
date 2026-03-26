@@ -110,6 +110,21 @@ a {
   text-decoration: none;
 }
 
+.brand-link,
+.brand-link:link,
+.brand-link:visited,
+.brand-link:hover,
+.brand-link:active,
+.brand-link *,
+.brand-link:visited *,
+.brand-link:active *,
+.brand-wordmark,
+.brand-wordmark:visited,
+.brand-wordmark:active {
+  color: #f8fafc !important;
+  -webkit-text-fill-color: #f8fafc !important;
+}
+
 .shell-header {
   position: sticky;
   top: 0;
@@ -490,6 +505,21 @@ button {
   background: radial-gradient(circle at 50% 38%, rgba(15, 23, 42, 0.26), rgba(0, 0, 0, 0.58) 72%);
 }
 
+.initial-load-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 36%, rgba(56, 189, 248, 0.12), rgba(0, 0, 0, 0.8) 70%);
+  opacity: 1;
+  transition: opacity 220ms ease-out;
+}
+
+.initial-load-overlay.is-fading {
+  opacity: 0;
+}
+
 .route-loading-center {
   display: grid;
   justify-items: center;
@@ -505,12 +535,6 @@ button {
   width: min(240px, 56vw) !important;
   height: min(240px, 56vw) !important;
   filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.4));
-}
-
-.route-loading-caption {
-  color: #94a3b8;
-  font-size: 0.9rem;
-  letter-spacing: 0.02em;
 }
 
 .explore-entity-loading {

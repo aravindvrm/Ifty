@@ -27,6 +27,19 @@ function displaySecurity(row: FeedRow): string {
   return row.security_display || row.ticker || row.security_name || row.issuer_name_raw || row.cusip_raw || "-";
 }
 
+function formatPercentChange(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "-";
+  }
+  const n = Number(value);
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(2)}%`;
+}
+
+function isUniverseInstitution(row: FeedRow): boolean {
+  return Boolean(row.manager_id && row.manager_in_universe === 1);
+}
+
 export function FeedLiveTable({
   rows,
   loadError
@@ -81,6 +94,7 @@ export function FeedLiveTable({
           days: Number.isFinite(days) && days > 0 ? days : 3650,
           includeOther: false,
           mappedOnly: true,
+          universeOnly: true,
           includeLowQuality: false,
           eventType: selectedEventType,
           formType: formType === "ALL" ? undefined : formType,
@@ -194,6 +208,7 @@ export function FeedLiveTable({
               <th className="px-3 py-2">Security</th>
               <th className="px-3 py-2">Institution</th>
               <th className="px-3 py-2 text-right">% Owned</th>
+              <th className="px-3 py-2 text-right">% Δ Owned</th>
               <th className="px-3 py-2 text-right">Shares</th>
               <th className="px-3 py-2">Form</th>
             </tr>
@@ -217,18 +232,35 @@ export function FeedLiveTable({
                     )}
                   </td>
                   <td className="px-3 py-2">
-                    {row.manager_id ? (
-                      <Link href={`/institution/${row.manager_id}`} className="text-accentBlue hover:text-white">
+                    {isUniverseInstitution(row) ? (
+                      <Link
+                        href={`/explore?type=institution&key=${encodeURIComponent(String(row.manager_id))}`}
+                        className="text-accentBlue hover:text-white"
+                      >
                         {row.manager_name ?? `Institution ${row.manager_id}`}
                       </Link>
                     ) : (
-                      row.manager_name ?? "-"
+                      <span className="text-slate-500">{row.manager_name ?? "-"}</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">
                     {row.percent_beneficial_owned === null || row.percent_beneficial_owned === undefined
                       ? "-"
                       : `${Number(row.percent_beneficial_owned).toFixed(2)}%`}
+                  </td>
+                  <td
+                    className={[
+                      "px-3 py-2 text-right",
+                      row.percent_beneficial_change === null || row.percent_beneficial_change === undefined
+                        ? "text-slate-500"
+                        : row.percent_beneficial_change > 0
+                          ? "text-emerald-300"
+                          : row.percent_beneficial_change < 0
+                            ? "text-rose-300"
+                            : "text-slate-300",
+                    ].join(" ")}
+                  >
+                    {formatPercentChange(row.percent_beneficial_change)}
                   </td>
                   <td className="px-3 py-2 text-right">
                     {row.shares_beneficial_owned === null || row.shares_beneficial_owned === undefined
@@ -240,7 +272,7 @@ export function FeedLiveTable({
               ))
             ) : (
               <tr>
-                <td colSpan={7} className="px-3 py-4 text-center text-sm text-slate-500">
+                <td colSpan={8} className="px-3 py-4 text-center text-sm text-slate-500">
                   {liveError ? `Feed unavailable: ${liveError}` : "No events match current filters."}
                 </td>
               </tr>

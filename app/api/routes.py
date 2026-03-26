@@ -55,7 +55,12 @@ def _is_bad_feed_security_text(value: str | None) -> bool:
         return True
     if " VARIABLE " in upper or " REMARKET" in upper:
         return True
+    if "CONFIDENTIAL" in upper and ("TREAT" in upper or "REATMENT" in upper):
+        return True
+    if "CONFIDENTIAL TREATMENT REQUESTED" in upper or "CONFIDENTIAL REATMENT REQUESTED" in upper:
+        return True
     return False
+
 
 def _derive_feed_security_display(row: dict[str, object]) -> str | None:
     ticker = _clean_feed_label(row.get("ticker"))
@@ -1405,6 +1410,7 @@ def security_events_feed(
               b.shares_beneficial_owned,
               b.cusip_raw,
               b.mapping_status,
+              b.manager_id,
               m.manager_name,
               f.form_type,
               f.accession_no
@@ -1435,6 +1441,7 @@ def feed_13dg(
     form_type: str | None = Query(None, description="Optional form-type filter, e.g. SC 13D, SC 13G, SC 13D/A."),
     include_other: int = Query(0, ge=0, le=1),
     mapped_only: int = Query(0, ge=0, le=1),
+    universe_only: int = Query(1, ge=0, le=1, description="Limit feed to active institution universe."),
     include_low_quality: int = Query(0, ge=0, le=1, description="Include rows with low-confidence/invalid security labels."),
     ticker: str | None = Query(None, description="Optional ticker filter."),
     manager_key: str | None = Query(None, description="Optional manager_id or cik filter."),
@@ -1460,6 +1467,17 @@ def feed_13dg(
         where_clauses.append("b.event_type <> 'OTHER'")
     if mapped_only:
         where_clauses.append("b.security_id IS NOT NULL")
+    if universe_only:
+        where_clauses.append(
+            """
+            EXISTS (
+              SELECT 1
+              FROM manager_universe u
+              WHERE u.manager_id = b.manager_id
+                AND u.is_active = 1
+            )
+            """
+        )
 
     if event_type:
         normalized = event_type.strip().upper()
@@ -1535,6 +1553,19 @@ def feed_13dg(
           b.report_date,
           b.event_type,
           b.percent_beneficial_owned,
+          (
+            SELECT b2.percent_beneficial_owned
+            FROM beneficial_ownership_events b2
+            WHERE b2.manager_id = b.manager_id
+              AND b2.security_id = b.security_id
+              AND (
+                b2.report_date < b.report_date
+                OR (b2.report_date = b.report_date AND b2.bo_event_id < b.bo_event_id)
+              )
+              AND b2.percent_beneficial_owned IS NOT NULL
+            ORDER BY b2.report_date DESC, b2.bo_event_id DESC
+            LIMIT 1
+          ) AS prev_percent_beneficial_owned,
           b.shares_beneficial_owned,
           b.mapping_status,
           b.mapping_confidence,
@@ -1542,6 +1573,15 @@ def feed_13dg(
           b.ticker_raw,
           b.manager_id,
           m.manager_name,
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM manager_universe u
+              WHERE u.manager_id = b.manager_id
+                AND u.is_active = 1
+            ) THEN 1
+            ELSE 0
+          END AS manager_in_universe,
           b.security_id,
           s.security_name,
           b.issuer_name_raw,
@@ -1579,6 +1619,12 @@ def feed_13dg(
     rows: list[dict[str, object]] = []
     for raw in raw_rows:
         row = dict(raw)
+        curr_pct = row.get("percent_beneficial_owned")
+        prev_pct = row.get("prev_percent_beneficial_owned")
+        if curr_pct is None or prev_pct is None:
+            row["percent_beneficial_change"] = None
+        else:
+            row["percent_beneficial_change"] = float(curr_pct) - float(prev_pct)
         security_display = _derive_feed_security_display(row)
         is_low_quality_security = int(security_display is None)
         if not include_low_quality and is_low_quality_security:
@@ -1600,6 +1646,7 @@ def feed_13dg(
             "form_type": normalized_form_type,
             "include_other": int(include_other),
             "mapped_only": int(mapped_only),
+            "universe_only": int(universe_only),
             "include_low_quality": int(include_low_quality),
             "ticker": ticker.upper() if ticker else None,
             "manager_key": manager_key,
@@ -2026,7 +2073,19 @@ def manager_page(
                   LEFT JOIN curr c ON c.match_key = p.match_key
                   WHERE c.match_key IS NULL
                 )
-                SELECT security_id, issuer_name_raw, class_title_raw, delta_val
+                SELECT
+                  security_id,
+                  issuer_name_raw,
+                  class_title_raw,
+                  (
+                    SELECT si.id_value
+                    FROM security_identifiers si
+                    WHERE si.security_id = combined.security_id
+                      AND si.id_type = 'TICKER'
+                    ORDER BY si.identifier_id
+                    LIMIT 1
+                  ) AS ticker,
+                  delta_val
                 FROM combined
                 """
             ),

@@ -20,6 +20,10 @@ function toEventDirection(eventType: string): "up" | "down" | "flat" {
   return "flat";
 }
 
+function isUniverseInstitution(row: FeedRow): boolean {
+  return Boolean(row.manager_id && row.manager_in_universe === 1);
+}
+
 export function TopLiveTape({ className }: { className?: string }) {
   const [rows, setRows] = useState<FeedRow[]>([]);
   const [ready, setReady] = useState(false);
@@ -38,6 +42,7 @@ export function TopLiveTape({ className }: { className?: string }) {
           limitN: 16,
           includeOther: false,
           mappedOnly: true,
+          universeOnly: true,
           includeLowQuality: false,
         });
         if (disposed || seq.current !== token) return;
@@ -102,12 +107,15 @@ export function TopLiveTape({ className }: { className?: string }) {
                 )}
               </span>
               <span className="feed-ticker-top-manager">
-                {row.manager_id ? (
-                  <Link href={`/institution/${row.manager_id}`} className="text-slate-300 hover:text-white">
+                {isUniverseInstitution(row) ? (
+                  <Link
+                    href={`/explore?type=institution&key=${encodeURIComponent(String(row.manager_id))}`}
+                    className="text-slate-300 hover:text-white"
+                  >
                     {row.manager_name ?? `Institution ${row.manager_id}`}
                   </Link>
                 ) : (
-                  row.manager_name ?? "-"
+                  <span className="text-slate-500">{row.manager_name ?? "-"}</span>
                 )}
               </span>
             </div>

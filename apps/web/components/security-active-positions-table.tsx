@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { fmtNumber, fmtPct, fmtUsdThousands } from "@/lib/format";
@@ -91,7 +92,15 @@ export function SecurityActivePositionsTable({ rows }: { rows: Row[] }) {
           <tbody className="divide-y divide-line/50 text-slate-300">
             {paged.map((row) => (
               <tr key={row.manager_id}>
-                <td className="px-3 py-2">{row.manager_name}</td>
+                <td className="px-3 py-2">
+                  <Link
+                    prefetch={false}
+                    href={`/explore?type=institution&key=${encodeURIComponent(String(row.manager_id))}`}
+                    className="text-accentBlue hover:text-white"
+                  >
+                    {row.manager_name}
+                  </Link>
+                </td>
                 <td className="px-3 py-2 text-right">{fmtNumber(row.shares)}</td>
                 <td className="px-3 py-2 text-right">{fmtUsdThousands(row.value_usd_thousands)}</td>
                 <td className={`px-3 py-2 text-right ${row.qoq_delta_shares >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
