@@ -181,6 +181,10 @@ export type ManagerUniverseResponse = {
 };
 
 export type InstitutionUniverseResponse = ManagerUniverseResponse;
+export type InstitutionSearchResponse = {
+  query: string;
+  rows: InstitutionUniverseResponse["rows"];
+};
 
 export type HomeOverviewResponse = {
   latest_quarter: string | null;
@@ -522,6 +526,12 @@ export function getAiObservability(days = 7, recentN = 100) {
 export function searchSecurities(query: string, limitN = 20) {
   return requestJson<SecuritySearchResponse>(
     `/security/search?q=${encodeURIComponent(query)}&limit_n=${limitN}`
+  );
+}
+
+export function searchInstitutions(query: string, limitN = 20) {
+  return requestJson<InstitutionSearchResponse>(
+    `/institution/search?q=${encodeURIComponent(query)}&limit_n=${limitN}`
   );
 }
 
