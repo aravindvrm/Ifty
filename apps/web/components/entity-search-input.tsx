@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 
-import { getInstitutionUniverse, searchSecurities, type InstitutionUniverseResponse } from "@/lib/api";
+import { searchInstitutions, searchSecurities, type InstitutionUniverseResponse } from "@/lib/api";
 import { TickerIcon } from "@/components/ticker-icon";
 
 type SecurityHit = {
@@ -17,33 +17,37 @@ type SecurityHit = {
 
 type InstitutionHit = InstitutionUniverseResponse["rows"][number];
 
-type SuggestionItem = {
+export type EntitySuggestionItem = {
   id: string;
   href: string;
   primary: string;
   secondary: string;
   kind: "security" | "institution";
   ticker?: string;
+  managerId?: number;
 };
 
-let institutionUniverseCache: InstitutionHit[] | null = null;
-let institutionUniversePromise: Promise<InstitutionHit[]> | null = null;
+const DERIVATIVE_SECURITY_PATTERN =
+  /\b(?:PUT|CALL|OPTION|WARRANT|RIGHT|PREFERRED|PFD|NOTE|BOND|DEBENTURE)\b|OPTION ROOT=/i;
+const OCC_STYLE_OPTION_TICKER_PATTERN = /^[A-Z]{1,6}\d{6}[CP]\d{8}$/;
 
-function loadInstitutionUniverse(limitN: number): Promise<InstitutionHit[]> {
-  if (institutionUniverseCache) {
-    return Promise.resolve(institutionUniverseCache);
+function isDisplayableSecurityHit(row: SecurityHit): boolean {
+  const ticker = String(row.ticker ?? "").trim().toUpperCase();
+  const securityName = String(row.security_name ?? "").trim();
+  const issuerName = String(row.issuer_name ?? "").trim();
+  const combined = `${securityName} ${issuerName}`.trim();
+  if (!ticker) return false;
+  if (OCC_STYLE_OPTION_TICKER_PATTERN.test(ticker)) return false;
+  if (DERIVATIVE_SECURITY_PATTERN.test(combined)) return false;
+  return true;
+}
+
+function applyHrefTemplate(template: string, values: Record<string, string>): string {
+  let href = template;
+  for (const [key, value] of Object.entries(values)) {
+    href = href.replaceAll(`{${key}}`, encodeURIComponent(value));
   }
-  if (!institutionUniversePromise) {
-    institutionUniversePromise = getInstitutionUniverse(limitN)
-      .then((response) => {
-        institutionUniverseCache = response.rows;
-        return response.rows;
-      })
-      .finally(() => {
-        institutionUniversePromise = null;
-      });
-  }
-  return institutionUniversePromise;
+  return href;
 }
 
 export function EntitySearchInput({
@@ -58,7 +62,11 @@ export function EntitySearchInput({
   includeInstitutions = true,
   securityLimit = 10,
   institutionLimit = 10,
-  institutionUniverseLimit = 500,
+  securityHrefTemplate,
+  institutionHrefTemplate,
+  onQueryChange,
+  navigateOnSelect = true,
+  onSelectSuggestion,
 }: {
   placeholder: string;
   defaultValue?: string;
@@ -71,7 +79,11 @@ export function EntitySearchInput({
   includeInstitutions?: boolean;
   securityLimit?: number;
   institutionLimit?: number;
-  institutionUniverseLimit?: number;
+  securityHrefTemplate?: string;
+  institutionHrefTemplate?: string;
+  onQueryChange?: (query: string) => void;
+  navigateOnSelect?: boolean;
+  onSelectSuggestion?: (item: EntitySuggestionItem) => void;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState(defaultValue);
@@ -87,41 +99,59 @@ export function EntitySearchInput({
 
   const trimmedQuery = query.trim();
 
-  const securityItems = useMemo<SuggestionItem[]>(() => {
+  const securityItems = useMemo<EntitySuggestionItem[]>(() => {
     if (!includeSecurities) return [];
     return securityHits
       .filter((row): row is SecurityHit & { ticker: string } => !!row.ticker)
+      .filter((row) => isDisplayableSecurityHit(row))
       .map((row) => ({
         id: `security-${row.security_id}`,
-        href: `/security/${encodeURIComponent(row.ticker)}`,
+        href: securityHrefTemplate
+          ? applyHrefTemplate(securityHrefTemplate, {
+              ticker: row.ticker,
+              security_id: String(row.security_id),
+            })
+          : `/security/${encodeURIComponent(row.ticker)}`,
         primary: row.ticker,
         secondary: row.security_name ?? row.issuer_name ?? "-",
         kind: "security",
         ticker: row.ticker,
       }));
-  }, [includeSecurities, securityHits]);
+  }, [includeSecurities, securityHrefTemplate, securityHits]);
 
-  const institutionItems = useMemo<SuggestionItem[]>(() => {
+  const institutionItems = useMemo<EntitySuggestionItem[]>(() => {
     if (!includeInstitutions) return [];
     return institutionHits.map((row) => ({
       id: `institution-${row.manager_id}`,
-      href: `/institution/${encodeURIComponent(String(row.manager_id))}`,
+      href: institutionHrefTemplate
+        ? applyHrefTemplate(institutionHrefTemplate, {
+            manager_id: String(row.manager_id),
+            cik: row.cik ?? "",
+            manager_name: row.manager_name ?? "",
+          })
+        : `/institution/${encodeURIComponent(String(row.manager_id))}`,
       primary: row.manager_name,
       secondary: row.cik ?? "CIK -",
       kind: "institution",
+      managerId: Number(row.manager_id),
     }));
-  }, [includeInstitutions, institutionHits]);
+  }, [includeInstitutions, institutionHits, institutionHrefTemplate]);
 
   const allItems = useMemo(() => [...securityItems, ...institutionItems], [securityItems, institutionItems]);
 
   const showDropdown = focused && trimmedQuery.length > 0 && (loading || !!searchError || allItems.length > 0);
 
-  const navigateTo = useCallback(
-    (href: string) => {
-      router.push(href);
+  const commitSelection = useCallback(
+    (item: EntitySuggestionItem) => {
+      setQuery(item.primary);
+      onQueryChange?.(item.primary);
+      onSelectSuggestion?.(item);
+      if (navigateOnSelect) {
+        router.push(item.href);
+      }
       setFocused(false);
     },
-    [router]
+    [navigateOnSelect, onSelectSuggestion, router]
   );
 
   useEffect(() => {
@@ -156,27 +186,31 @@ export function EntitySearchInput({
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        const [securityResponse, universeRows] = await Promise.all([
-          includeSecurities ? searchSecurities(trimmedQuery, securityLimit) : Promise.resolve({ query: trimmedQuery, rows: [] }),
-          includeInstitutions ? loadInstitutionUniverse(institutionUniverseLimit) : Promise.resolve([]),
+        const [securityResult, institutionResult] = await Promise.allSettled([
+          includeSecurities
+            ? searchSecurities(trimmedQuery, securityLimit)
+            : Promise.resolve({ query: trimmedQuery, rows: [] }),
+          includeInstitutions
+            ? searchInstitutions(trimmedQuery, institutionLimit)
+            : Promise.resolve({ query: trimmedQuery, rows: [] }),
         ]);
 
         if (searchSeq.current !== seq) return;
 
-        const q = trimmedQuery.toLowerCase();
-        const matchedInstitutions = includeInstitutions
-          ? universeRows
-              .filter((row) => {
-                const managerName = (row.manager_name ?? "").toLowerCase();
-                const cik = (row.cik ?? "").toLowerCase();
-                return managerName.includes(q) || cik.includes(q);
-              })
-              .slice(0, institutionLimit)
-          : [];
+        const securityRows =
+          securityResult.status === "fulfilled" ? (securityResult.value.rows as SecurityHit[]) : [];
+        const institutionRows =
+          institutionResult.status === "fulfilled"
+            ? (institutionResult.value.rows as InstitutionHit[])
+            : [];
 
-        setSecurityHits(securityResponse.rows as SecurityHit[]);
-        setInstitutionHits(matchedInstitutions);
-        setSearchError("");
+        setSecurityHits(securityRows);
+        setInstitutionHits(institutionRows);
+        setSearchError(
+          securityResult.status === "rejected" && institutionResult.status === "rejected"
+            ? "Search unavailable"
+            : ""
+        );
       } catch (error) {
         if (searchSeq.current !== seq) return;
         setSecurityHits([]);
@@ -196,7 +230,6 @@ export function EntitySearchInput({
     trimmedQuery,
     securityLimit,
     institutionLimit,
-    institutionUniverseLimit,
   ]);
 
   useEffect(() => {
@@ -222,7 +255,12 @@ export function EntitySearchInput({
           type="search"
           value={query}
           onFocus={() => setFocused(true)}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            const next = event.target.value;
+            setFocused(true);
+            setQuery(next);
+            onQueryChange?.(next);
+          }}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") {
               event.preventDefault();
@@ -256,15 +294,15 @@ export function EntitySearchInput({
               event.preventDefault();
               const active = activeIndex >= 0 ? allItems[activeIndex] : null;
               if (active) {
-                navigateTo(active.href);
+                commitSelection(active);
                 return;
               }
               const first = allItems[0];
               if (first) {
-                navigateTo(first.href);
+                commitSelection(first);
                 return;
               }
-              if (fallbackPath && trimmedQuery) {
+              if (navigateOnSelect && fallbackPath && trimmedQuery) {
                 router.push(`${fallbackPath}?q=${encodeURIComponent(trimmedQuery)}`);
                 setFocused(false);
               }
@@ -294,7 +332,7 @@ export function EntitySearchInput({
                     key={item.id}
                     type="button"
                     onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => navigateTo(item.href)}
+                    onClick={() => commitSelection(item)}
                     className={[
                       "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm transition",
                       active ? "bg-accentBlue/20 text-white" : "text-slate-200 hover:bg-card/70",
@@ -322,7 +360,7 @@ export function EntitySearchInput({
                     key={item.id}
                     type="button"
                     onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => navigateTo(item.href)}
+                    onClick={() => commitSelection(item)}
                     className={[
                       "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm transition",
                       active ? "bg-accentBlue/20 text-white" : "text-slate-200 hover:bg-card/70",

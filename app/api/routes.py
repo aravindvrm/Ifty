@@ -672,6 +672,58 @@ def manager_universe(
     return {"rows": [dict(x) for x in rows]}
 
 
+@router.get("/institution/search")
+@router.get("/manager/search")
+def institution_search(
+    q: str = Query(..., min_length=1, description="Institution name or CIK fragment."),
+    limit_n: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> dict:
+    q_norm = q.strip().upper()
+    params = {
+        "q_exact": q_norm,
+        "q_prefix": f"{q_norm}%",
+        "q_contains": f"%{q_norm}%",
+        "limit_n": limit_n,
+    }
+    rows = db.execute(
+        text(
+            """
+            SELECT
+              u.rank,
+              m.manager_id,
+              m.cik,
+              m.manager_name,
+              u.total_value_usd,
+              u.as_of_report_date,
+              COALESCE(u.is_active, 0) AS is_active
+            FROM manager_universe u
+            JOIN managers m
+              ON m.manager_id = u.manager_id
+            WHERE COALESCE(u.is_active, 0) = 1
+              AND (
+                UPPER(COALESCE(m.manager_name, '')) LIKE :q_contains
+                OR UPPER(COALESCE(m.cik, '')) LIKE :q_contains
+              )
+            ORDER BY
+              CASE
+                WHEN UPPER(COALESCE(m.manager_name, '')) = :q_exact THEN 0
+                WHEN UPPER(COALESCE(m.cik, '')) = :q_exact THEN 1
+                WHEN UPPER(COALESCE(m.manager_name, '')) LIKE :q_prefix THEN 2
+                WHEN UPPER(COALESCE(m.cik, '')) LIKE :q_prefix THEN 3
+                ELSE 4
+              END,
+              CASE WHEN u.rank IS NULL THEN 1 ELSE 0 END,
+              COALESCE(u.rank, 999999),
+              m.manager_name ASC
+            LIMIT :limit_n
+            """
+        ),
+        params,
+    ).mappings().all()
+    return {"query": q, "rows": [dict(x) for x in rows]}
+
+
 @router.get("/ops/api-usage")
 def api_usage(
     days: int = Query(7, ge=1, le=90),
@@ -913,6 +965,12 @@ def security_search(
                   AND UPPER(COALESCE(s.security_name, '')) NOT LIKE 'PUT %'
                   AND UPPER(COALESCE(s.security_name, '')) NOT LIKE 'CALL %'
                   AND UPPER(COALESCE(s.security_name, '')) NOT LIKE '%OPTION ROOT=%'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM agg_security_quarter aq
+                    WHERE aq.security_id = s.security_id
+                      AND aq.report_date = (SELECT MAX(report_date) FROM agg_security_quarter)
+                  )
                 ORDER BY
                   CASE WHEN UPPER(si.id_value) = :q_exact THEN 0 ELSE 1 END,
                   s.security_id DESC
@@ -961,6 +1019,12 @@ def security_search(
                 WHERE st.security_id = s.security_id
                   AND st.id_type = 'TICKER'
                   AND (st.valid_to IS NULL OR date('now') < date(st.valid_to))
+              )
+              AND EXISTS (
+                SELECT 1
+                FROM agg_security_quarter aq
+                WHERE aq.security_id = s.security_id
+                  AND aq.report_date = (SELECT MAX(report_date) FROM agg_security_quarter)
               )
             GROUP BY s.security_id, s.security_name, i.issuer_name
             ORDER BY
@@ -1583,6 +1647,8 @@ def manager_page(
             "top_positions": [],
             "new_positions": [],
             "exited_positions": [],
+            "top_buys": [],
+            "top_sells": [],
             "metrics": {},
         }
 

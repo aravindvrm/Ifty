@@ -1,13 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef } from "react";
 
-import { Sparkline } from "@/components/charts";
 import { TickerIcon } from "@/components/ticker-icon";
 import { fmtNumber, fmtUsd } from "@/lib/format";
-
-type SparkPoint = { report_date: string; net_shares: number; net_holder_count: number };
 
 type MoverRow = {
   security_id: number;
@@ -38,82 +35,89 @@ export function TopMoversColumn({
   columnKey,
   rows,
   pageSize = 5,
-  intervalMs = 5200,
   className = "",
 }: {
   title: string;
   columnKey: string;
   rows: MoverRow[];
   pageSize?: number;
-  intervalMs?: number;
   className?: string;
 }) {
-  const ANIMATION_MS = 620;
-  const ROW_HEIGHT_PX = 102;
+  const SCROLL_PX_PER_SEC = 24;
+  const ROW_HEIGHT_PX = 74;
   const ROW_GAP_PX = 8;
-  const VIEWPORT_BUFFER_PX = 16;
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
-  const [page, setPage] = useState(0);
-  const [incomingPage, setIncomingPage] = useState<number | null>(null);
-  const [animating, setAnimating] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
+  const VIEWPORT_BUFFER_PX = 12;
+  const shouldAnimate = rows.length > pageSize;
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const primaryListRef = useRef<HTMLDivElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const lastTsRef = useRef<number | null>(null);
+  const offsetRef = useRef(0);
+  const cycleHeightRef = useRef(0);
+  const pausedRef = useRef(false);
 
-  useEffect(() => {
-    setPage(0);
-    setIncomingPage(null);
-    setAnimating(false);
-  }, [rows.length, pageSize]);
-
-  useEffect(() => {
-    if (pageCount <= 1 || animating || incomingPage !== null) return;
-    if (isHovered) return;
-    const timer = window.setTimeout(() => {
-      setIncomingPage((page + 1) % pageCount);
-    }, Math.max(1800, intervalMs));
-    return () => window.clearTimeout(timer);
-  }, [animating, incomingPage, intervalMs, isHovered, page, pageCount]);
-
-  useEffect(() => {
-    if (incomingPage === null) return;
-    const raf = window.requestAnimationFrame(() => setAnimating(true));
-    return () => window.cancelAnimationFrame(raf);
-  }, [incomingPage]);
-
-  useEffect(() => {
-    if (!animating || incomingPage === null) return;
-    const timer = window.setTimeout(() => {
-      setPage(incomingPage);
-      setIncomingPage(null);
-      setAnimating(false);
-    }, ANIMATION_MS);
-    return () => window.clearTimeout(timer);
-  }, [ANIMATION_MS, animating, incomingPage]);
-
-  const pageRows = useMemo(() => {
-    const start = page * pageSize;
-    return rows.slice(start, start + pageSize);
-  }, [page, pageSize, rows]);
-  const incomingRows = useMemo(() => {
-    if (incomingPage === null) return [] as MoverRow[];
-    const start = incomingPage * pageSize;
-    return rows.slice(start, start + pageSize);
-  }, [incomingPage, pageSize, rows]);
   const viewportHeight = Math.max(
-    440,
+    320,
     pageSize * ROW_HEIGHT_PX + Math.max(0, pageSize - 1) * ROW_GAP_PX + VIEWPORT_BUFFER_PX
   );
 
-  const currentPaneStyle = {
-    transform: animating && incomingPage !== null ? "translateY(-100%)" : "translateY(0%)",
-    transition: incomingPage !== null ? `transform ${ANIMATION_MS}ms cubic-bezier(0.22, 0.8, 0.3, 1)` : "none",
-  };
-  const incomingPaneStyle = {
-    transform: animating ? "translateY(0%)" : "translateY(100%)",
-    transition: `transform ${ANIMATION_MS}ms cubic-bezier(0.22, 0.8, 0.3, 1)`,
-  };
+  useEffect(() => {
+    const trackEl = trackRef.current;
+    const primaryEl = primaryListRef.current;
+    if (!trackEl || !primaryEl) return;
 
-  const renderRows = (rowsToRender: MoverRow[], pageKey: string) => (
-    <div className="space-y-2">
+    if (!shouldAnimate) {
+      trackEl.style.transform = "translateY(0px)";
+      return;
+    }
+
+    pausedRef.current = false;
+    offsetRef.current = 0;
+    lastTsRef.current = null;
+    cycleHeightRef.current = Math.max(0, primaryEl.offsetHeight);
+    trackEl.style.transform = "translateY(0px)";
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            cycleHeightRef.current = Math.max(0, primaryEl.offsetHeight);
+            if (cycleHeightRef.current > 0) {
+              offsetRef.current %= cycleHeightRef.current;
+              trackEl.style.transform = `translateY(-${offsetRef.current}px)`;
+            }
+          })
+        : null;
+    if (resizeObserver) resizeObserver.observe(primaryEl);
+
+    const step = (timestamp: number) => {
+      const cycleHeight = cycleHeightRef.current;
+      if (lastTsRef.current === null) lastTsRef.current = timestamp;
+      const deltaMs = timestamp - lastTsRef.current;
+      lastTsRef.current = timestamp;
+
+      if (!pausedRef.current && cycleHeight > 0) {
+        offsetRef.current += (SCROLL_PX_PER_SEC * deltaMs) / 1000;
+        if (offsetRef.current >= cycleHeight) {
+          offsetRef.current %= cycleHeight;
+        }
+        trackEl.style.transform = `translateY(-${offsetRef.current}px)`;
+      }
+
+      rafRef.current = window.requestAnimationFrame(step);
+    };
+
+    rafRef.current = window.requestAnimationFrame(step);
+    return () => {
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      if (resizeObserver) resizeObserver.disconnect();
+    };
+  }, [SCROLL_PX_PER_SEC, shouldAnimate, rows.length, pageSize]);
+
+  const renderRows = (rowsToRender: MoverRow[], pageKey: string, isPrimary = false) => (
+    <div ref={isPrimary ? primaryListRef : undefined} className="space-y-2">
       {rowsToRender.map((row) => (
         <div
           key={`${columnKey}-${pageKey}-${row.security_id}`}
@@ -135,9 +139,6 @@ export function TopMoversColumn({
             <span>Net holders</span>
             <span className={toneClass(row.net_holder_count)}>{fmtSigned(row.net_holder_count, 0)}</span>
           </div>
-          <div className="mt-2 h-9 rounded-none border border-line/60 bg-black/25 px-1">
-            <Sparkline data={row.series as SparkPoint[]} />
-          </div>
         </div>
       ))}
     </div>
@@ -145,36 +146,26 @@ export function TopMoversColumn({
 
   return (
     <div className={className}>
-      <h3 className="text-sm font-semibold text-slate-200">{title}</h3>
+      <h3 className="text-base font-semibold text-slate-100">{title}</h3>
       <div
         className="relative mt-3 overflow-hidden"
         style={{ height: `${viewportHeight}px` }}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
+        onMouseEnter={() => {
+          pausedRef.current = true;
+        }}
+        onMouseLeave={() => {
+          pausedRef.current = false;
+        }}
       >
         {rows.length ? (
-          <div className="absolute inset-0" style={currentPaneStyle}>
-            {renderRows(pageRows, `page-${page}`)}
+          <div ref={trackRef} className="absolute inset-0 will-change-transform">
+            {renderRows(rows, "primary", true)}
+            {shouldAnimate ? renderRows(rows, "clone") : null}
           </div>
         ) : (
           <p className="text-xs text-slate-500">No eligible securities for this view.</p>
         )}
-        {rows.length && incomingPage !== null ? (
-          <div className="absolute inset-0" style={incomingPaneStyle}>
-            {renderRows(incomingRows, `incoming-${incomingPage}`)}
-          </div>
-        ) : (
-          null
-        )}
       </div>
-      {rows.length > pageSize ? (
-        <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
-          <span>{fmtNumber(rows.length)} items</span>
-          <span>
-            Page {page + 1}/{pageCount}
-          </span>
-        </div>
-      ) : null}
     </div>
   );
 }
