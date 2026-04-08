@@ -10,6 +10,8 @@ type Props = {
 };
 
 const VALID_TICKER_RE = /^[A-Z]{1,6}(?:\.[A-Z]{1,2})?$/;
+const failedLogoUrlCache = new Set<string>();
+const successfulLogoUrlCache = new Set<string>();
 
 function cleanTicker(value: string | null | undefined): string {
   return (value ?? "").trim().toUpperCase();
@@ -21,7 +23,9 @@ function buildSources(ticker: string): string[] {
   return [
     `https://financialmodelingprep.com/image-stock/${encodeURIComponent(ticker)}.png`,
     `https://eodhd.com/img/logos/US/${encodeURIComponent(plain)}.png`,
-  ];
+  ]
+    .filter((src) => !failedLogoUrlCache.has(src))
+    .sort((a, b) => Number(successfulLogoUrlCache.has(b)) - Number(successfulLogoUrlCache.has(a)));
 }
 
 function initialsFromTicker(ticker: string): string {
@@ -87,11 +91,19 @@ export function TickerIcon({ ticker, label, size = 20, className }: Props) {
           referrerPolicy="no-referrer"
           style={{ width: "100%", height: "100%", objectFit: "cover", background: "#0b1220" }}
           onError={() => {
+            if (source) {
+              failedLogoUrlCache.add(source);
+            }
             const nextIndex = sourceIndex + 1;
             if (nextIndex < sources.length) {
               setSourceIndex(nextIndex);
             } else {
               setShowFallback(true);
+            }
+          }}
+          onLoad={() => {
+            if (source) {
+              successfulLogoUrlCache.add(source);
             }
           }}
         />

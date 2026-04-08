@@ -181,6 +181,11 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
       symbol: null,
       size: Number(row.value_usd_thousands ?? 0),
       delta: Number(row.qoq_delta_shares ?? 0),
+      shares: Number(row.shares ?? 0),
+      pctOfInstitution:
+        row.pct_manager_portfolio === null || row.pct_manager_portfolio === undefined
+          ? null
+          : Number(row.pct_manager_portfolio),
     }));
   }, [security]);
 
@@ -190,6 +195,7 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
 
   const institutionHeatmapData = useMemo(() => {
     if (!institution) return [];
+    const totalPortfolioUsd = Number(institution.metrics.total_value_current ?? 0);
     const deltaBySecurityId = new Map<number, number>();
     for (const position of institutionTopPositions) {
       const delta = position.qoq_delta_value_usd_thousands;
@@ -212,6 +218,11 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
       symbol: position.ticker ?? null,
       size: Number(position.value_usd_thousands ?? 0),
       delta: deltaBySecurityId.has(position.security_id) ? deltaBySecurityId.get(position.security_id) : null,
+      shares: Number(position.shares ?? 0),
+      pctOfInstitution:
+        totalPortfolioUsd > 0
+          ? ((Number(position.value_usd_thousands ?? 0) * 1000.0) / totalPortfolioUsd)
+          : null,
     }));
   }, [institution, institutionTopBuys, institutionTopPositions, institutionTopSells]);
 
@@ -219,11 +230,9 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
 
   if (loading) {
     return (
-      <section className="rounded-none border border-line/80 bg-card/80 p-6 shadow-panel">
-        <div className="explore-entity-loading">
-          <LottieLoader size={170} className="explore-loading-lottie" />
-        </div>
-      </section>
+      <div className="explore-entity-loading">
+        <LottieLoader size={170} className="explore-loading-lottie" />
+      </div>
     );
   }
 

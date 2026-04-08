@@ -26,7 +26,7 @@ export async function MarketPulseView() {
     overview = await getHomeOverview({ quartersN: 8, topN: 10, scatterN: 0 });
   } catch (error) {
     return (
-      <section className="rounded-none p-6 shadow-panel">
+      <section className="rounded-none p-6">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Institutional Flow Dashboard</h1>
         <p className="mt-2 text-sm text-slate-400">Failed to load homepage analytics.</p>
         <pre className="mt-3 overflow-auto rounded-none border border-line/70 bg-black/35 p-3 text-xs text-rose-200">
@@ -47,7 +47,7 @@ export async function MarketPulseView() {
   return (
     <div className="space-y-10">
       <section>
-        <article className="rounded-none p-5 shadow-panel">
+        <article className="rounded-none p-5">
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-4 xl:gap-0">
             {columns.map((column, index) => (
               <div

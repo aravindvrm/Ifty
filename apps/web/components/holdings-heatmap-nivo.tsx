@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ResponsiveTreeMap } from "@nivo/treemap";
 
-import { fmtNumber, fmtUsdThousands } from "@/lib/format";
+import { fmtNumber, fmtPct, fmtUsdThousands } from "@/lib/format";
 import { TickerIcon } from "@/components/ticker-icon";
 
 import type { HoldingsHeatmapProps } from "./charts";
@@ -14,10 +14,22 @@ type NivoLeaf = {
   label: string;
   symbol: string | null;
   is_full_name: boolean;
+  entry_order: number;
+  sharesLabel: string;
+  pctOfInstitutionLabel: string;
   value: number;
   color: string;
   valueLabel: string;
   deltaLabelValue: string;
+};
+
+type HeatmapHoverState = {
+  name: string;
+  sharesLabel: string;
+  deltaLabelValue: string;
+  pctOfInstitutionLabel: string;
+  clientX: number;
+  clientY: number;
 };
 
 function normalizeSuffixToken(token: string): string {
@@ -131,7 +143,15 @@ function wrapWords(text: string, maxCharsPerLine: number, maxLines: number): str
   return lines;
 }
 
-function NivoNode({ node }: any) {
+function NivoNode({
+  node,
+  onHover,
+  onHoverEnd,
+}: {
+  node: any;
+  onHover?: (event: React.MouseEvent<SVGRectElement>, node: any) => void;
+  onHoverEnd?: () => void;
+}) {
   if (!node?.isLeaf) {
     return null;
   }
@@ -172,69 +192,90 @@ function NivoNode({ node }: any) {
   const labelCenterY = showIcon ? labelCenterYBase + iconSize * 0.44 + 4 : labelCenterYBase;
   const labelStartY = labelCenterY - ((finalLabelLines.length - 1) * lineHeight) / 2;
   const clipId = `tile-clip-${String(node.id).replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const entryOrderRaw = Number(node.data?.entry_order ?? 0);
+  const entryOrder = Number.isFinite(entryOrderRaw) ? Math.max(0, entryOrderRaw) : 0;
+  const enterStyle: CSSProperties = {
+    animationDelay: `${Math.min(entryOrder, 42) * 30}ms`
+  };
 
   return (
     <g transform={`translate(${node.x},${node.y})`}>
-      <clipPath id={clipId}>
-        <rect x={1} y={1} width={Math.max(0, width - 2)} height={Math.max(0, height - 2)} rx={0} ry={0} />
-      </clipPath>
-      <rect
-        width={width}
-        height={height}
-        rx={0}
-        ry={0}
-        fill={String(node.color)}
-        stroke="rgba(226, 232, 240, 0.24)"
-        strokeWidth={1}
-      />
-      {showIcon ? (
-        <foreignObject
-          x={width / 2 - iconSize / 2}
-          y={iconY}
-          width={iconSize}
-          height={iconSize}
-          clipPath={`url(#${clipId})`}
-          style={{ pointerEvents: "none" }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <TickerIcon ticker={symbol} label={String(node.data?.name ?? label)} size={iconSize} />
-          </div>
-        </foreignObject>
-      ) : null}
-      {showLabelLines ? (
-        <text
-          x={width / 2}
-          y={labelStartY}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          fill="#e2e8f0"
-          fontSize={fontSizeLabel}
-          fontWeight={700}
-          clipPath={`url(#${clipId})`}
-          style={{ pointerEvents: "none", textTransform: isFullName ? "none" : "uppercase" }}
-        >
-          {finalLabelLines.map((line, idx) => (
-            <tspan key={`${line}-${idx}`} x={width / 2} dy={idx === 0 ? 0 : lineHeight}>
-              {line}
-            </tspan>
-          ))}
-        </text>
-      ) : null}
-      {showValue ? (
-        <text
-          x={width / 2}
-          y={height * 0.77}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          fill="rgba(226, 232, 240, 0.96)"
-          fontSize={fontSizeValue}
-          fontWeight={500}
-          clipPath={`url(#${clipId})`}
-          style={{ pointerEvents: "none" }}
-        >
-          {valueLabel}
-        </text>
-      ) : null}
+      <g className="heatmap-tile heatmap-tile-enter" style={enterStyle}>
+        <clipPath id={clipId}>
+          <rect x={1} y={1} width={Math.max(0, width - 2)} height={Math.max(0, height - 2)} rx={0} ry={0} />
+        </clipPath>
+        <rect
+          className="heatmap-tile-rect"
+          width={width}
+          height={height}
+          rx={0}
+          ry={0}
+          fill={String(node.color)}
+          stroke="rgba(226, 232, 240, 0.24)"
+          strokeWidth={1}
+          onMouseEnter={(event) => {
+            node.onMouseEnter?.(event);
+            onHover?.(event, node);
+          }}
+          onMouseMove={(event) => {
+            node.onMouseMove?.(event);
+            onHover?.(event, node);
+          }}
+          onMouseLeave={(event) => {
+            node.onMouseLeave?.(event);
+            onHoverEnd?.();
+          }}
+          onClick={node.onClick}
+        />
+        {showIcon ? (
+          <foreignObject
+            x={width / 2 - iconSize / 2}
+            y={iconY}
+            width={iconSize}
+            height={iconSize}
+            clipPath={`url(#${clipId})`}
+            style={{ pointerEvents: "none" }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <TickerIcon ticker={symbol} label={String(node.data?.name ?? label)} size={iconSize} />
+            </div>
+          </foreignObject>
+        ) : null}
+        {showLabelLines ? (
+          <text
+            x={width / 2}
+            y={labelStartY}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill="#e2e8f0"
+            fontSize={fontSizeLabel}
+            fontWeight={700}
+            clipPath={`url(#${clipId})`}
+            style={{ pointerEvents: "none", textTransform: isFullName ? "none" : "uppercase" }}
+          >
+            {finalLabelLines.map((line, idx) => (
+              <tspan key={`${line}-${idx}`} x={width / 2} dy={idx === 0 ? 0 : lineHeight}>
+                {line}
+              </tspan>
+            ))}
+          </text>
+        ) : null}
+        {showValue ? (
+          <text
+            x={width / 2}
+            y={height * 0.77}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill="rgba(226, 232, 240, 0.96)"
+            fontSize={fontSizeValue}
+            fontWeight={500}
+            clipPath={`url(#${clipId})`}
+            style={{ pointerEvents: "none" }}
+          >
+            {valueLabel}
+          </text>
+        ) : null}
+      </g>
     </g>
   );
 }
@@ -255,7 +296,10 @@ export function HoldingsHeatmapNivo({
   minTiles = 18
 }: HoldingsHeatmapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(920);
+  const [hover, setHover] = useState<HeatmapHoverState | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ left: number; top: number }>({ left: 8, top: 8 });
 
   useEffect(() => {
     const measure = () => {
@@ -288,11 +332,19 @@ export function HoldingsHeatmapNivo({
     });
     const maxAbsDelta = Math.max(1, ...ranked.map((point) => Math.abs(Number(point.delta ?? 0) || 0)));
 
-    return ranked.map((point) => {
+    return ranked.map((point, index) => {
       const deltaValueRaw = point.delta === null || point.delta === undefined ? null : Number(point.delta);
       const deltaValue = deltaValueRaw !== null && !Number.isNaN(deltaValueRaw) ? deltaValueRaw : null;
       const deltaTextRaw = deltaValue === null ? "-" : formatByType(deltaValue, deltaFormat);
       const deltaText = signedDelta && deltaValue !== null && deltaValue > 0 ? `+${deltaTextRaw}` : deltaTextRaw;
+      const sharesValueRaw = point.shares === null || point.shares === undefined ? null : Number(point.shares);
+      const sharesValue = sharesValueRaw !== null && !Number.isNaN(sharesValueRaw) ? sharesValueRaw : null;
+      const pctOfInstitutionRaw =
+        point.pctOfInstitution === null || point.pctOfInstitution === undefined
+          ? null
+          : Number(point.pctOfInstitution);
+      const pctOfInstitution =
+        pctOfInstitutionRaw !== null && !Number.isNaN(pctOfInstitutionRaw) ? pctOfInstitutionRaw : null;
       const { label, isFullName } = deriveLabel(point.name, point.symbol, labelMode);
       return {
         id: String(point.id),
@@ -300,6 +352,9 @@ export function HoldingsHeatmapNivo({
         label,
         symbol: point.symbol ? String(point.symbol).toUpperCase() : null,
         is_full_name: isFullName,
+        entry_order: index,
+        sharesLabel: sharesValue === null ? "-" : fmtNumber(sharesValue),
+        pctOfInstitutionLabel: pctOfInstitution === null ? "-" : fmtPct(pctOfInstitution),
         value: Number(point.size),
         color: tileFill(Number(point.size), deltaValue, maxSize, maxAbsDelta),
         valueLabel: formatByType(Number(point.size), valueFormat),
@@ -315,6 +370,58 @@ export function HoldingsHeatmapNivo({
   const height = Math.max(300, Math.min(620, Math.round(Math.max(360, containerWidth) * 0.58)));
   const treeData = { name: "root", children: prepared };
   const rootClassName = containerClassName ? `chart-box ${containerClassName}` : "chart-box";
+
+  const handleNodeHover = useCallback((event: React.MouseEvent<SVGRectElement>, node: any) => {
+    setHover({
+      name: String(node?.data?.name ?? ""),
+      sharesLabel: String(node?.data?.sharesLabel ?? "-"),
+      deltaLabelValue: String(node?.data?.deltaLabelValue ?? "-"),
+      pctOfInstitutionLabel: String(node?.data?.pctOfInstitutionLabel ?? "-"),
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+  }, []);
+
+  const handleNodeHoverEnd = useCallback(() => {
+    setHover(null);
+  }, []);
+
+  const nodeRenderer = useCallback(
+    (nodeProps: any) => (
+      <NivoNode node={nodeProps.node} onHover={handleNodeHover} onHoverEnd={handleNodeHoverEnd} />
+    ),
+    [handleNodeHover, handleNodeHoverEnd]
+  );
+
+  useLayoutEffect(() => {
+    if (!hover) return;
+    const tip = tooltipRef.current;
+    if (!tip) return;
+    const tipRect = tip.getBoundingClientRect();
+    const gap = 12;
+    const pad = 8;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let leftClient = hover.clientX + gap;
+    if (leftClient + tipRect.width > viewportWidth - pad) {
+      leftClient = hover.clientX - tipRect.width - gap;
+    }
+    leftClient = Math.max(pad, Math.min(leftClient, viewportWidth - tipRect.width - pad));
+
+    let topClient = hover.clientY + gap;
+    if (topClient + tipRect.height > viewportHeight - pad) {
+      topClient = hover.clientY - tipRect.height - gap;
+    }
+    topClient = Math.max(pad, Math.min(topClient, viewportHeight - tipRect.height - pad));
+    const nextLeft = leftClient;
+    const nextTop = topClient;
+    setTooltipPos((prev) =>
+      Math.abs(prev.left - nextLeft) < 0.5 && Math.abs(prev.top - nextTop) < 0.5
+        ? prev
+        : { left: nextLeft, top: nextTop }
+    );
+  }, [hover]);
 
   return (
     <div className={rootClassName}>
@@ -342,15 +449,30 @@ export function HoldingsHeatmapNivo({
           isInteractive
           animate
           motionConfig="gentle"
-          nodeComponent={NivoNode}
-          tooltip={({ node }: any) => (
-            <div className="heatmap-tooltip">
-              <div className="heatmap-tooltip-title">{String(node?.data?.name ?? "")}</div>
-              <div>{valueLabel}: {String(node?.data?.valueLabel ?? "-")}</div>
-              <div>{deltaLabel}: {String(node?.data?.deltaLabelValue ?? "-")}</div>
-            </div>
-          )}
+          nodeComponent={nodeRenderer}
+          tooltip={() => null}
         />
+        {hover ? (
+          <div
+            ref={tooltipRef}
+            className="pointer-events-none fixed z-[80] heatmap-tooltip"
+            style={{ left: `${tooltipPos.left}px`, top: `${tooltipPos.top}px` }}
+          >
+            <div className="heatmap-tooltip-title">{hover.name}</div>
+            <div className="heatmap-tooltip-row">
+              <span className="heatmap-tooltip-label">Shares</span>
+              <span className="heatmap-tooltip-value">{hover.sharesLabel}</span>
+            </div>
+            <div className="heatmap-tooltip-row">
+              <span className="heatmap-tooltip-label">{deltaLabel}</span>
+              <span className="heatmap-tooltip-value">{hover.deltaLabelValue}</span>
+            </div>
+            <div className="heatmap-tooltip-row">
+              <span className="heatmap-tooltip-label">% of Institution</span>
+              <span className="heatmap-tooltip-value">{hover.pctOfInstitutionLabel}</span>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

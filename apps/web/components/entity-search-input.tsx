@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 
 import { searchInstitutions, searchSecurities, type InstitutionUniverseResponse } from "@/lib/api";
+import { LottieLoader } from "@/components/lottie-loader";
 import { TickerIcon } from "@/components/ticker-icon";
 
 type SecurityHit = {
@@ -315,7 +316,11 @@ export function EntitySearchInput({
 
       {showDropdown ? (
         <div className={dropdownClassName}>
-          {loading ? <div className="px-3 py-2 text-xs text-slate-400">Searching...</div> : null}
+          {loading ? (
+            <div className="flex items-center px-3 py-1.5 text-xs text-slate-400">
+              <LottieLoader size={24} className="search-inline-lottie" />
+            </div>
+          ) : null}
           {!loading && searchError ? <div className="px-3 py-2 text-xs text-rose-300">Search unavailable</div> : null}
           {!loading && !searchError && allItems.length === 0 ? (
             <div className="px-3 py-2 text-xs text-slate-500">No matches</div>

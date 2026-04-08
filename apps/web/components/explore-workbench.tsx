@@ -79,15 +79,15 @@ export function ExploreWorkbench({ defaultQuery = "", initialSelection = null, p
 
   return (
     <div className="space-y-6">
-      <section className="rounded-none p-6 shadow-panel">
+      <section className="rounded-none p-6">
         <motion.div layout transition={transition} className="relative mx-auto w-full max-w-4xl">
           <EntitySearchInput
             placeholder="Search by ticker or institution..."
             defaultValue={defaultQuery}
             showIcon={false}
             className="relative"
-            inputClassName="search-pill w-full rounded-full border border-accentBlue/45 bg-card/80 py-4 pl-12 pr-5 text-lg text-slate-100 outline-none transition-all placeholder:text-slate-500 shadow-[0_0_0_1px_rgba(56,189,248,0.2),0_0_24px_rgba(56,189,248,0.18)] hover:border-accentBlue/70 focus:border-accentBlue focus:shadow-[0_0_0_1px_rgba(56,189,248,0.42),0_0_34px_rgba(56,189,248,0.3)]"
-            dropdownClassName="absolute left-0 right-0 top-[calc(100%+10px)] z-40 overflow-hidden rounded-none border border-line/80 bg-[#02050c] shadow-panel"
+            inputClassName="search-pill w-full rounded-full border border-line/80 bg-card/80 py-4 pl-12 pr-5 text-lg text-slate-100 outline-none transition-all placeholder:text-slate-500 hover:border-line focus:border-accentBlue/50"
+            dropdownClassName="absolute left-0 right-0 top-[calc(100%+10px)] z-40 overflow-hidden rounded-none border border-line/80 bg-[#02050c]"
             securityLimit={12}
             institutionLimit={12}
             navigateOnSelect={false}

@@ -20,7 +20,7 @@ module.exports = {
         xl2: "0px",
       },
       boxShadow: {
-        panel: "0 18px 60px rgba(0,0,0,0.45)",
+        panel: "none",
       },
       backgroundImage: {
         "hero-grid":

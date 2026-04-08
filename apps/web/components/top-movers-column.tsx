@@ -121,7 +121,7 @@ export function TopMoversColumn({
       {rowsToRender.map((row) => (
         <div
           key={`${columnKey}-${pageKey}-${row.security_id}`}
-          className="rounded-none border border-line/60 bg-cardSoft/50 p-2.5 transition-colors hover:border-accentBlue/70 hover:bg-card/75"
+          className="rounded-none border border-line/60 bg-cardSoft/50 p-2.5 transition-colors hover:border-line/70 hover:bg-cardSoft/60"
         >
           <div className="flex items-center justify-between gap-2">
             <Link

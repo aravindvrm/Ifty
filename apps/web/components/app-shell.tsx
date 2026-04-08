@@ -22,7 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const showInitialOverlay = pathname === "/explore" && !hasEntitySelection;
 
   return (
-    <div className="h-screen overflow-hidden text-slate-100">
+    <div className="app-shell-root h-screen overflow-hidden text-slate-100">
       {showInitialOverlay ? <InitialLoadOverlay /> : null}
 
       <Link
@@ -38,18 +38,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </span>
       </Link>
 
-      <div className="app-main-scroll h-full overflow-y-auto">
-        <main className="mx-auto w-full max-w-[1600px] px-4 pb-5 pt-20 md:px-6 md:pb-6 md:pt-24 lg:px-8">{children}</main>
-
-        <footer className="border-t border-line/70 bg-black/20">
-          <div className="mx-auto flex h-12 w-full max-w-[1600px] items-center justify-between px-4 text-xs text-slate-500 md:px-6 lg:px-8">
-            <span>Ifty</span>
-            <Link href="/institution" className="text-slate-300 transition hover:text-white">
-              Institution Directory
-            </Link>
-          </div>
-        </footer>
+      <div className="app-main-scroll relative z-10 h-full overflow-y-auto pb-12">
+        <main className="mx-auto w-full max-w-[1600px] px-4 pb-5 pt-[4.5rem] md:px-6 md:pb-6 md:pt-[5.5rem] lg:px-8">{children}</main>
       </div>
+
+      <footer className="fixed inset-x-0 bottom-0 z-20 bg-black/20">
+        <div className="mx-auto flex h-12 w-full max-w-[1600px] items-center justify-between px-4 text-xs text-slate-500 md:px-6 lg:px-8">
+          <span>Ifty</span>
+          <Link href="/institution" className="text-slate-300 transition hover:text-white">
+            Institution Directory
+          </Link>
+        </div>
+      </footer>
 
       <AiChatWidget />
     </div>

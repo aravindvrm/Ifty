@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { LottieLoader } from "@/components/lottie-loader";
 
 type QuarterBarPoint = { report_date: string; net_change_shares: number };
 type SparkPoint = { report_date: string; net_shares: number; net_holder_count: number };
@@ -10,6 +11,8 @@ type HeatmapPoint = {
   symbol?: string | null;
   size: number;
   delta?: number | null;
+  shares?: number | null;
+  pctOfInstitution?: number | null;
 };
 
 export type HoldingsHeatmapProps = {
@@ -28,15 +31,24 @@ export type HoldingsHeatmapProps = {
   minTiles?: number;
 };
 
+function HeatmapLoadingCard() {
+  return (
+    <div className="chart-box">
+      <h3 className="select-none opacity-0" aria-hidden>
+        Loading
+      </h3>
+      <div className="treemap-wrap" style={{ minHeight: 360, height: 360, display: "grid", placeItems: "center" }}>
+        <LottieLoader size={150} />
+      </div>
+    </div>
+  );
+}
+
 const HoldingsHeatmapRenderer = dynamic<HoldingsHeatmapProps>(
   () => import("./holdings-heatmap-nivo").then((m) => m.HoldingsHeatmapNivo),
   {
     ssr: false,
-    loading: () => (
-      <div className="chart-box">
-        <h3>Loading heatmap...</h3>
-      </div>
-    )
+    loading: () => <HeatmapLoadingCard />
   }
 );
 

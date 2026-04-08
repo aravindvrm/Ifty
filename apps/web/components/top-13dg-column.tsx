@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { get13DGFeed, type Feed13DGResponse } from "@/lib/api";
+import { LottieLoader } from "@/components/lottie-loader";
 import { TickerIcon } from "@/components/ticker-icon";
 
 type FeedRow = Feed13DGResponse["rows"][number];
@@ -170,7 +171,7 @@ export function Top13DGColumn({
         return (
           <div
             key={`${keyPrefix}-${row.bo_event_id}-${idx}`}
-            className="rounded-none border border-line/60 bg-cardSoft/50 p-2.5 transition-colors hover:border-accentBlue/70 hover:bg-card/75"
+            className="rounded-none border border-line/60 bg-cardSoft/50 p-2.5 transition-colors hover:border-line/70 hover:bg-cardSoft/60"
           >
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-slate-500">{row.report_date}</span>
@@ -227,7 +228,9 @@ export function Top13DGColumn({
         }}
       >
         {!ready ? (
-          <p className="text-xs text-slate-500">Loading feed...</p>
+          <div className="absolute inset-0 grid place-items-center">
+            <LottieLoader size={84} />
+          </div>
         ) : error || rows.length === 0 ? (
           <p className="text-xs text-slate-500">13D/G feed unavailable.</p>
         ) : (
