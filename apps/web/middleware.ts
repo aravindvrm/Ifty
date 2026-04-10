@@ -22,6 +22,32 @@ function getSupabaseEnvFromRuntime(): { url: string; anonKey: string } | null {
   return { url, anonKey };
 }
 
+function getSupabaseProjectRef(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.trim().toLowerCase();
+    if (!host) return null;
+    const first = host.split(".")[0] ?? "";
+    return first || null;
+  } catch {
+    return null;
+  }
+}
+
+function hasSupabaseSessionCookie(request: NextRequest, projectRef: string | null): boolean {
+  const cookies = request.cookies.getAll();
+  if (cookies.length === 0) return false;
+
+  const exactPrefix = projectRef ? `sb-${projectRef}-auth-token` : null;
+  return cookies.some((cookie) => {
+    const name = String(cookie.name ?? "").toLowerCase();
+    if (!name) return false;
+    if (exactPrefix && name.startsWith(exactPrefix)) return true;
+    if (name.startsWith("sb-") && name.includes("-auth-token")) return true;
+    if (name.includes("supabase-auth-token")) return true;
+    return false;
+  });
+}
+
 function normalizeNextPathForRedirect(input: string | null | undefined): string {
   const value = String(input ?? "").trim();
   if (!value) return DEFAULT_POST_LOGIN_PATH;
@@ -55,45 +81,18 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  let response = NextResponse.next({
+  const projectRef = getSupabaseProjectRef(env.url);
+  if (!hasSupabaseSessionCookie(request, projectRef)) {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = "/login";
+    redirectUrl.searchParams.set("next", normalizeNextPathForRedirect(`${pathname}${request.nextUrl.search}`));
+    redirectUrl.searchParams.set("error", "auth_session_required");
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  return NextResponse.next({
     request,
   });
-
-  let user: { id: string } | null = null;
-  try {
-    const { createServerClient } = await import("@supabase/ssr");
-    const supabase = createServerClient(env.url, env.anonKey, {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          response = NextResponse.next({
-            request,
-          });
-          cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
-        },
-      },
-    });
-
-    const result = await supabase.auth.getUser();
-    user = result.data.user;
-  } catch {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("next", normalizeNextPathForRedirect(`${pathname}${request.nextUrl.search}`));
-    redirectUrl.searchParams.set("error", "auth_middleware_failed");
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  if (!user) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("next", normalizeNextPathForRedirect(`${pathname}${request.nextUrl.search}`));
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  return response;
 }
 
 export const config = {

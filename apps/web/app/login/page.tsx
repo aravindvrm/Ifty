@@ -88,6 +88,8 @@ export default function LoginPage() {
         <p className="mt-2 text-sm text-rose-300">Auth env vars are missing on the server. Please contact the admin.</p>
       ) : authError === "auth_middleware_failed" ? (
         <p className="mt-2 text-sm text-rose-300">Auth middleware failed. Please try signing in again.</p>
+      ) : authError === "auth_session_required" ? (
+        <p className="mt-2 text-sm text-slate-300">Please sign in to continue.</p>
       ) : null}
 
       <form className="mt-5 space-y-3" onSubmit={onSubmit}>
