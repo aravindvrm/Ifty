@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 const PUBLIC_PATH_PREFIXES = ["/login", "/auth/callback", "/icon"];
 const STATIC_FILE_EXTENSIONS = [".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".css", ".js", ".map", ".txt", ".woff", ".woff2", ".webmanifest"];
 const DEFAULT_POST_LOGIN_PATH = "/explore";
-const AUTH_MIDDLEWARE_ENABLED = String(process.env.AUTH_MIDDLEWARE_ENABLED ?? "").trim().toLowerCase() === "true";
+const AUTH_MIDDLEWARE_ENABLED = String(process.env.AUTH_MIDDLEWARE_ENABLED ?? "true").trim().toLowerCase() !== "false";
 
 function toTrimmed(value: string | undefined): string {
   return String(value ?? "").trim();
@@ -48,7 +48,11 @@ export async function middleware(request: NextRequest) {
 
   const env = getSupabaseEnvFromRuntime();
   if (!env) {
-    return NextResponse.next();
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = "/login";
+    redirectUrl.searchParams.set("next", normalizeNextPathForRedirect(`${pathname}${request.nextUrl.search}`));
+    redirectUrl.searchParams.set("error", "auth_env_missing");
+    return NextResponse.redirect(redirectUrl);
   }
 
   let response = NextResponse.next({
@@ -75,8 +79,11 @@ export async function middleware(request: NextRequest) {
     const result = await supabase.auth.getUser();
     user = result.data.user;
   } catch {
-    // Never break the whole app on auth middleware failures.
-    return NextResponse.next();
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = "/login";
+    redirectUrl.searchParams.set("next", normalizeNextPathForRedirect(`${pathname}${request.nextUrl.search}`));
+    redirectUrl.searchParams.set("error", "auth_middleware_failed");
+    return NextResponse.redirect(redirectUrl);
   }
 
   if (!user) {

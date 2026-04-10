@@ -16,7 +16,7 @@ export default function LoginPage() {
 
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const nextPath = normalizeNextPath(searchParams.get("next"));
-  const callbackError = String(searchParams.get("error") ?? "").trim();
+  const authError = String(searchParams.get("error") ?? "").trim();
 
   useEffect(() => {
     if (!supabase) return;
@@ -82,8 +82,12 @@ export default function LoginPage() {
     <section className="mx-auto w-full max-w-md rounded-none border border-line/80 bg-card/60 p-6">
       <h1 className="text-xl font-semibold text-slate-100">Sign in</h1>
       <p className="mt-2 text-sm text-slate-400">Use your email to receive a secure sign-in link.</p>
-      {callbackError === "auth_callback_failed" ? (
+      {authError === "auth_callback_failed" ? (
         <p className="mt-2 text-sm text-rose-300">Sign-in callback failed. Please request a new magic link.</p>
+      ) : authError === "auth_env_missing" ? (
+        <p className="mt-2 text-sm text-rose-300">Auth env vars are missing on the server. Please contact the admin.</p>
+      ) : authError === "auth_middleware_failed" ? (
+        <p className="mt-2 text-sm text-rose-300">Auth middleware failed. Please try signing in again.</p>
       ) : null}
 
       <form className="mt-5 space-y-3" onSubmit={onSubmit}>
