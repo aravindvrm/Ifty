@@ -1,9 +1,9 @@
-import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
 const PUBLIC_PATH_PREFIXES = ["/login", "/auth/callback", "/icon"];
 const STATIC_FILE_EXTENSIONS = [".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".css", ".js", ".map", ".txt", ".woff", ".woff2", ".webmanifest"];
 const DEFAULT_POST_LOGIN_PATH = "/explore";
+const AUTH_MIDDLEWARE_ENABLED = String(process.env.AUTH_MIDDLEWARE_ENABLED ?? "").trim().toLowerCase() === "true";
 
 function toTrimmed(value: string | undefined): string {
   return String(value ?? "").trim();
@@ -42,6 +42,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (!AUTH_MIDDLEWARE_ENABLED) {
+    return NextResponse.next();
+  }
+
   const env = getSupabaseEnvFromRuntime();
   if (!env) {
     return NextResponse.next();
@@ -53,6 +57,7 @@ export async function middleware(request: NextRequest) {
 
   let user: { id: string } | null = null;
   try {
+    const { createServerClient } = await import("@supabase/ssr");
     const supabase = createServerClient(env.url, env.anonKey, {
       cookies: {
         getAll() {
