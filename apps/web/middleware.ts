@@ -13,6 +13,12 @@ function getSupabaseEnvFromRuntime(): { url: string; anonKey: string } | null {
   const url = toTrimmed(process.env.NEXT_PUBLIC_SUPABASE_URL);
   const anonKey = toTrimmed(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
   if (!url || !anonKey) return null;
+  try {
+    const parsed = new URL(url);
+    if (!/^https?:$/.test(parsed.protocol)) return null;
+  } catch {
+    return null;
+  }
   return { url, anonKey };
 }
 
@@ -45,24 +51,28 @@ export async function middleware(request: NextRequest) {
     request,
   });
 
-  const supabase = createServerClient(env.url, env.anonKey, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
+  let user: { id: string } | null = null;
+  try {
+    const supabase = createServerClient(env.url, env.anonKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          response = NextResponse.next({
+            request,
+          });
+          cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+        },
       },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        response = NextResponse.next({
-          request,
-        });
-        cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
-      },
-    },
-  });
+    });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const result = await supabase.auth.getUser();
+    user = result.data.user;
+  } catch {
+    // Never break the whole app on auth middleware failures.
+    return NextResponse.next();
+  }
 
   if (!user) {
     const redirectUrl = request.nextUrl.clone();
