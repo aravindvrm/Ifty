@@ -3,16 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "@ai-sdk/react";
-import { Sixtyfour_Convergence } from "next/font/google";
 import { Bot, Loader2, MessageCircle, Octagon, Send, X } from "lucide-react";
 
 const MAX_HISTORY_MESSAGES = 12;
 const MAX_MESSAGE_CHARS = 1800;
-const iftyWordmarkFont = Sixtyfour_Convergence({
-  subsets: ["latin"],
-  weight: "400",
-  display: "swap",
-});
 
 type BackendChatMessage = {
   role: "user" | "assistant";
@@ -214,7 +208,7 @@ export function AiChatWidget() {
                 <Bot className="h-4 w-4" />
               </span>
               <div>
-                <div className={`${iftyWordmarkFont.className} text-sm text-slate-100`}>Ifty AI</div>
+                <div className="brand-wordmark-sixtyfour text-sm text-slate-100">Ifty AI</div>
               </div>
             </div>
             {isLoading ? (

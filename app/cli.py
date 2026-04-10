@@ -10,7 +10,7 @@ from datetime import UTC
 from datetime import timedelta
 from pathlib import Path
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import bindparam, create_engine, text
 
 from app.config import get_settings
 from app.db import ensure_schema_and_seed, get_engine
@@ -282,6 +282,29 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Exit non-zero when internal validation errors are found.",
     )
+
+    push_demo = sub.add_parser(
+        "push-demo-subset",
+        help="Push a bounded subset from local DB into a remote Postgres (e.g., Supabase) for demos.",
+    )
+    push_demo.add_argument("--target-db-url", required=True, help="Remote Postgres SQLAlchemy URL.")
+    push_demo.add_argument("--top-n", type=int, default=7, help="Top managers from manager_universe to include.")
+    push_demo.add_argument("--quarters", type=int, default=2, help="Latest mapped non-option quarters to include.")
+    push_demo.add_argument("--bo-keep-days", type=int, default=180, help="Keep this many 13D/G days for included managers.")
+    push_demo.add_argument(
+        "--insider-keep-days",
+        type=int,
+        default=120,
+        help="Keep this many Form 4 days for included securities/tickers.",
+    )
+    push_demo.add_argument("--batch-size", type=int, default=5000, help="Rows per COPY batch into remote DB.")
+    push_demo.add_argument(
+        "--skip-schema-init",
+        action="store_true",
+        default=False,
+        help="Skip schema bootstrap on the target DB.",
+    )
+    push_demo.add_argument("--dry-run", action="store_true", default=False, help="Print subset scope without writing remote.")
 
     sub.add_parser("refresh-aggregates", help="Rebuild aggregate tables from mapped holdings.")
     return parser
@@ -1657,6 +1680,539 @@ def _validate_live(
         raise SystemExit(2)
 
 
+def _execute_sql_script(engine, script_text: str) -> None:
+    statements: list[str] = []
+    buffer: list[str] = []
+    for line in script_text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("--"):
+            continue
+        buffer.append(line)
+        if stripped.endswith(";"):
+            stmt = "\n".join(buffer).strip()
+            if stmt.endswith(";"):
+                stmt = stmt[:-1]
+            if stmt:
+                statements.append(stmt)
+            buffer = []
+    if buffer:
+        stmt = "\n".join(buffer).strip()
+        if stmt:
+            statements.append(stmt)
+
+    with engine.begin() as conn:
+        for stmt in statements:
+            conn.exec_driver_sql(stmt)
+
+
+def _read_int_ids(conn, stmt, params: dict | None = None) -> list[int]:
+    rows = conn.execute(stmt, params or {}).all()
+    return [int(r[0]) for r in rows if r and r[0] is not None]
+
+
+def _copy_query_to_target(
+    source_engine,
+    target_engine,
+    table_name: str,
+    select_stmt,
+    params: dict | None = None,
+    batch_size: int = 5000,
+) -> int:
+    copied = 0
+    with source_engine.connect() as src_conn, target_engine.begin() as tgt_conn:
+        result = src_conn.execute(select_stmt, params or {})
+        columns = list(result.keys())
+        if not columns:
+            return 0
+        insert_sql = text(
+            f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({', '.join(':' + c for c in columns)})"
+        )
+        while True:
+            batch = result.fetchmany(batch_size)
+            if not batch:
+                break
+            payload = [{col: row._mapping[col] for col in columns} for row in batch]
+            tgt_conn.execute(insert_sql, payload)
+            copied += len(payload)
+    return copied
+
+
+def _set_pk_sequences(target_engine) -> None:
+    table_pk_cols: list[tuple[str, str]] = [
+        ("issuers", "issuer_id"),
+        ("securities", "security_id"),
+        ("security_identifiers", "identifier_id"),
+        ("corporate_actions", "action_id"),
+        ("security_alias_links", "link_id"),
+        ("managers", "manager_id"),
+        ("filings", "filing_id"),
+        ("holdings_13f", "holding_13f_id"),
+        ("beneficial_ownership_events", "bo_event_id"),
+        ("insider_transactions", "insider_tx_id"),
+        ("api_request_log", "request_id"),
+    ]
+    with target_engine.begin() as conn:
+        for table_name, pk_col in table_pk_cols:
+            seq_name = conn.execute(
+                text("SELECT pg_get_serial_sequence(:table_name, :pk_col)"),
+                {"table_name": table_name, "pk_col": pk_col},
+            ).scalar()
+            if not seq_name:
+                continue
+            max_id = conn.execute(text(f"SELECT COALESCE(MAX({pk_col}), 1) FROM {table_name}")).scalar() or 1
+            conn.execute(text("SELECT setval(:seq_name, :max_id, true)"), {"seq_name": seq_name, "max_id": int(max_id)})
+
+
+def _push_demo_subset(
+    target_db_url: str,
+    top_n: int,
+    quarters: int,
+    bo_keep_days: int,
+    insider_keep_days: int,
+    batch_size: int,
+    skip_schema_init: bool,
+    dry_run: bool,
+) -> None:
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.orm import Session
+
+    from app.analytics.aggregates import AggregateRefreshService
+    from app.pipeline.universe import ManagerUniverseService
+
+    settings = get_settings()
+    source_engine = get_engine()
+    target_engine = create_engine(target_db_url, future=True, pool_pre_ping=True)
+
+    source_url = make_url(settings.api_db_url)
+    target_url = make_url(target_db_url)
+    if (
+        source_url.get_backend_name() == target_url.get_backend_name()
+        and source_url.host == target_url.host
+        and source_url.port == target_url.port
+        and source_url.database == target_url.database
+        and source_url.username == target_url.username
+    ):
+        raise ValueError("Refusing to push demo subset: source and target DB appear to be the same.")
+
+    today_utc = datetime.now(UTC).date()
+    bo_cutoff = (today_utc - timedelta(days=max(0, int(bo_keep_days)))).isoformat()
+    insider_cutoff = (today_utc - timedelta(days=max(0, int(insider_keep_days)))).isoformat()
+
+    with source_engine.connect() as src_conn:
+        latest_report_dates = [
+            str(r[0])
+            for r in src_conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT report_date
+                    FROM holdings_13f
+                    WHERE option_type IS NULL
+                      AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+                    ORDER BY report_date DESC
+                    LIMIT :quarters
+                    """
+                ),
+                {"quarters": max(1, int(quarters))},
+            ).all()
+            if r and r[0] is not None
+        ]
+        if not latest_report_dates:
+            raise RuntimeError("No mapped holdings were found in source DB.")
+
+        keep_manager_ids = _read_int_ids(
+            src_conn,
+            text(
+                """
+                SELECT manager_id
+                FROM manager_universe
+                WHERE is_active = 1
+                ORDER BY rank ASC
+                LIMIT :top_n
+                """
+            ),
+            {"top_n": max(1, int(top_n))},
+        )
+
+        if not keep_manager_ids:
+            keep_manager_ids = _read_int_ids(
+                src_conn,
+                text(
+                    """
+                    WITH ranked AS (
+                      SELECT
+                        h.manager_id,
+                        ROW_NUMBER() OVER (
+                          ORDER BY SUM(COALESCE(h.value_usd_thousands, 0)) DESC, h.manager_id ASC
+                        ) AS rnk
+                      FROM holdings_13f h
+                      WHERE h.report_date = :latest_report_date
+                        AND h.option_type IS NULL
+                        AND h.mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+                      GROUP BY h.manager_id
+                    )
+                    SELECT manager_id
+                    FROM ranked
+                    WHERE rnk <= :top_n
+                    ORDER BY rnk ASC
+                    """
+                ),
+                {"latest_report_date": latest_report_dates[0], "top_n": max(1, int(top_n))},
+            )
+
+        if not keep_manager_ids:
+            raise RuntimeError("No managers found for demo subset.")
+
+        holdings_filter_stmt = text(
+            """
+            SELECT DISTINCT filing_id
+            FROM holdings_13f
+            WHERE manager_id IN :manager_ids
+              AND report_date IN :report_dates
+              AND option_type IS NULL
+              AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+            """
+        ).bindparams(
+            bindparam("manager_ids", expanding=True),
+            bindparam("report_dates", expanding=True),
+        )
+        holding_filing_ids = _read_int_ids(
+            src_conn,
+            holdings_filter_stmt,
+            {"manager_ids": keep_manager_ids, "report_dates": latest_report_dates},
+        )
+        holdings_rows_count = int(
+            src_conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*)
+                    FROM holdings_13f
+                    WHERE manager_id IN :manager_ids
+                      AND report_date IN :report_dates
+                      AND option_type IS NULL
+                      AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+                    """
+                ).bindparams(
+                    bindparam("manager_ids", expanding=True),
+                    bindparam("report_dates", expanding=True),
+                ),
+                {"manager_ids": keep_manager_ids, "report_dates": latest_report_dates},
+            ).scalar()
+            or 0
+        )
+
+        bo_event_ids = _read_int_ids(
+            src_conn,
+            text(
+                """
+                SELECT bo_event_id
+                FROM beneficial_ownership_events
+                WHERE manager_id IN :manager_ids
+                  AND report_date >= :bo_cutoff
+                """
+            ).bindparams(bindparam("manager_ids", expanding=True)),
+            {"manager_ids": keep_manager_ids, "bo_cutoff": bo_cutoff},
+        )
+
+        holding_security_ids = _read_int_ids(
+            src_conn,
+            text(
+                """
+                SELECT DISTINCT security_id
+                FROM holdings_13f
+                WHERE manager_id IN :manager_ids
+                  AND report_date IN :report_dates
+                  AND option_type IS NULL
+                  AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+                  AND security_id IS NOT NULL
+                """
+            ).bindparams(
+                bindparam("manager_ids", expanding=True),
+                bindparam("report_dates", expanding=True),
+            ),
+            {"manager_ids": keep_manager_ids, "report_dates": latest_report_dates},
+        )
+        bo_security_ids = _read_int_ids(
+            src_conn,
+            text(
+                """
+                SELECT DISTINCT security_id
+                FROM beneficial_ownership_events
+                WHERE bo_event_id IN :bo_ids
+                  AND security_id IS NOT NULL
+                """
+            ).bindparams(bindparam("bo_ids", expanding=True)),
+            {"bo_ids": bo_event_ids},
+        )
+        keep_security_ids = sorted(set(holding_security_ids) | set(bo_security_ids))
+
+        keep_tickers = [
+            str(r[0]).upper()
+            for r in src_conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT id_value
+                    FROM security_identifiers
+                    WHERE security_id IN :security_ids
+                      AND id_type = 'TICKER'
+                      AND id_value IS NOT NULL
+                    """
+                ).bindparams(bindparam("security_ids", expanding=True)),
+                {"security_ids": keep_security_ids},
+            ).all()
+            if r and r[0]
+        ]
+
+        insider_tx_ids = _read_int_ids(
+            src_conn,
+            text(
+                """
+                SELECT t.insider_tx_id
+                FROM insider_transactions t
+                LEFT JOIN filings f ON f.filing_id = t.filing_id
+                WHERE t.transaction_date >= :insider_cutoff
+                  AND (
+                    (t.security_id IS NOT NULL AND t.security_id IN :security_ids)
+                    OR (
+                      COALESCE(t.issuer_trading_symbol, '') <> ''
+                      AND UPPER(t.issuer_trading_symbol) IN :tickers
+                    )
+                  )
+                  AND (f.manager_id IS NULL OR f.manager_id IN :manager_ids)
+                """
+            ).bindparams(
+                bindparam("security_ids", expanding=True),
+                bindparam("tickers", expanding=True),
+                bindparam("manager_ids", expanding=True),
+            ),
+            {
+                "insider_cutoff": insider_cutoff,
+                "security_ids": keep_security_ids,
+                "tickers": keep_tickers,
+                "manager_ids": keep_manager_ids,
+            },
+        )
+
+        insider_filing_ids = _read_int_ids(
+            src_conn,
+            text(
+                """
+                SELECT DISTINCT filing_id
+                FROM insider_transactions
+                WHERE insider_tx_id IN :tx_ids
+                """
+            ).bindparams(bindparam("tx_ids", expanding=True)),
+            {"tx_ids": insider_tx_ids},
+        )
+        bo_filing_ids = _read_int_ids(
+            src_conn,
+            text(
+                """
+                SELECT DISTINCT filing_id
+                FROM beneficial_ownership_events
+                WHERE bo_event_id IN :bo_ids
+                """
+            ).bindparams(bindparam("bo_ids", expanding=True)),
+            {"bo_ids": bo_event_ids},
+        )
+        keep_filing_ids = sorted(set(holding_filing_ids) | set(bo_filing_ids) | set(insider_filing_ids))
+
+        filing_manager_ids = _read_int_ids(
+            src_conn,
+            text(
+                """
+                SELECT DISTINCT manager_id
+                FROM filings
+                WHERE filing_id IN :filing_ids
+                  AND manager_id IS NOT NULL
+                """
+            ).bindparams(bindparam("filing_ids", expanding=True)),
+            {"filing_ids": keep_filing_ids},
+        )
+        keep_manager_ids = sorted(set(keep_manager_ids) | set(filing_manager_ids))
+
+        insider_security_ids = _read_int_ids(
+            src_conn,
+            text(
+                """
+                SELECT DISTINCT security_id
+                FROM insider_transactions
+                WHERE insider_tx_id IN :tx_ids
+                  AND security_id IS NOT NULL
+                """
+            ).bindparams(bindparam("tx_ids", expanding=True)),
+            {"tx_ids": insider_tx_ids},
+        )
+        keep_security_ids = sorted(set(keep_security_ids) | set(insider_security_ids))
+
+        keep_issuer_ids = _read_int_ids(
+            src_conn,
+            text(
+                """
+                SELECT DISTINCT issuer_id
+                FROM securities
+                WHERE security_id IN :security_ids
+                """
+            ).bindparams(bindparam("security_ids", expanding=True)),
+            {"security_ids": keep_security_ids},
+        )
+
+    summary_scope = {
+        "latest_report_dates": latest_report_dates,
+        "managers": len(keep_manager_ids),
+        "securities": len(keep_security_ids),
+        "filings": len(keep_filing_ids),
+        "holdings_rows": holdings_rows_count,
+        "bo_events": len(bo_event_ids),
+        "insider_transactions": len(insider_tx_ids),
+        "bo_cutoff": bo_cutoff,
+        "insider_cutoff": insider_cutoff,
+    }
+
+    if dry_run:
+        print("push_demo_subset_dry_run " + " ".join(f"{k}={v}" for k, v in summary_scope.items()))
+        return
+
+    if not skip_schema_init:
+        root = Path(__file__).resolve().parent.parent
+        schema_sql = (root / "db" / "schema_postgres.sql").read_text(encoding="utf-8")
+        _execute_sql_script(target_engine, schema_sql)
+    ensure_schema_and_seed(target_engine)
+
+    with target_engine.begin() as tgt_conn:
+        tgt_conn.execute(
+            text(
+                """
+                TRUNCATE TABLE
+                  insider_transactions,
+                  beneficial_ownership_events,
+                  holdings_13f,
+                  agg_security_quarter,
+                  agg_manager_quarter,
+                  manager_universe,
+                  filings,
+                  security_identifiers,
+                  securities,
+                  issuers,
+                  managers,
+                  corporate_actions,
+                  security_alias_links,
+                  cusip_ticker_xwalk,
+                  api_request_log,
+                  pipeline_run_events
+                RESTART IDENTITY CASCADE
+                """
+            )
+        )
+
+    copied_counts: dict[str, int] = {}
+    copied_counts["managers"] = _copy_query_to_target(
+        source_engine=source_engine,
+        target_engine=target_engine,
+        table_name="managers",
+        select_stmt=text("SELECT * FROM managers WHERE manager_id IN :manager_ids").bindparams(
+            bindparam("manager_ids", expanding=True)
+        ),
+        params={"manager_ids": keep_manager_ids},
+        batch_size=batch_size,
+    )
+    copied_counts["issuers"] = _copy_query_to_target(
+        source_engine=source_engine,
+        target_engine=target_engine,
+        table_name="issuers",
+        select_stmt=text("SELECT * FROM issuers WHERE issuer_id IN :issuer_ids").bindparams(
+            bindparam("issuer_ids", expanding=True)
+        ),
+        params={"issuer_ids": keep_issuer_ids},
+        batch_size=batch_size,
+    )
+    copied_counts["securities"] = _copy_query_to_target(
+        source_engine=source_engine,
+        target_engine=target_engine,
+        table_name="securities",
+        select_stmt=text("SELECT * FROM securities WHERE security_id IN :security_ids").bindparams(
+            bindparam("security_ids", expanding=True)
+        ),
+        params={"security_ids": keep_security_ids},
+        batch_size=batch_size,
+    )
+    copied_counts["security_identifiers"] = _copy_query_to_target(
+        source_engine=source_engine,
+        target_engine=target_engine,
+        table_name="security_identifiers",
+        select_stmt=text("SELECT * FROM security_identifiers WHERE security_id IN :security_ids").bindparams(
+            bindparam("security_ids", expanding=True)
+        ),
+        params={"security_ids": keep_security_ids},
+        batch_size=batch_size,
+    )
+    copied_counts["filings"] = _copy_query_to_target(
+        source_engine=source_engine,
+        target_engine=target_engine,
+        table_name="filings",
+        select_stmt=text("SELECT * FROM filings WHERE filing_id IN :filing_ids").bindparams(
+            bindparam("filing_ids", expanding=True)
+        ),
+        params={"filing_ids": keep_filing_ids},
+        batch_size=batch_size,
+    )
+    copied_counts["holdings_13f"] = _copy_query_to_target(
+        source_engine=source_engine,
+        target_engine=target_engine,
+        table_name="holdings_13f",
+        select_stmt=text(
+            """
+            SELECT *
+            FROM holdings_13f
+            WHERE manager_id IN :manager_ids
+              AND report_date IN :report_dates
+              AND option_type IS NULL
+              AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+            """
+        ).bindparams(
+            bindparam("manager_ids", expanding=True),
+            bindparam("report_dates", expanding=True),
+        ),
+        params={"manager_ids": keep_manager_ids, "report_dates": latest_report_dates},
+        batch_size=batch_size,
+    )
+    copied_counts["beneficial_ownership_events"] = _copy_query_to_target(
+        source_engine=source_engine,
+        target_engine=target_engine,
+        table_name="beneficial_ownership_events",
+        select_stmt=text("SELECT * FROM beneficial_ownership_events WHERE bo_event_id IN :bo_ids").bindparams(
+            bindparam("bo_ids", expanding=True)
+        ),
+        params={"bo_ids": bo_event_ids},
+        batch_size=batch_size,
+    )
+    copied_counts["insider_transactions"] = _copy_query_to_target(
+        source_engine=source_engine,
+        target_engine=target_engine,
+        table_name="insider_transactions",
+        select_stmt=text("SELECT * FROM insider_transactions WHERE insider_tx_id IN :tx_ids").bindparams(
+            bindparam("tx_ids", expanding=True)
+        ),
+        params={"tx_ids": insider_tx_ids},
+        batch_size=batch_size,
+    )
+
+    with Session(bind=target_engine) as tgt_db:
+        agg_summary = AggregateRefreshService(db=tgt_db).refresh_all()
+        universe_summary = ManagerUniverseService(db=tgt_db).refresh_top_n(top_n=max(1, int(top_n)))
+        copied_counts["agg_security_quarter"] = int(agg_summary.security_rows)
+        copied_counts["agg_manager_quarter"] = int(agg_summary.manager_rows)
+        copied_counts["manager_universe"] = int(universe_summary.selected)
+
+    _set_pk_sequences(target_engine)
+
+    print(
+        "push_demo_subset_complete "
+        + " ".join(f"{k}={v}" for k, v in summary_scope.items())
+        + " "
+        + " ".join(f"{k}_copied={v}" for k, v in copied_counts.items())
+    )
+
+
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
@@ -1785,6 +2341,17 @@ def main() -> None:
             external_provider=args.external_provider,
             json_out=args.json_out,
             fail_on_error=args.fail_on_error,
+        )
+    elif args.command == "push-demo-subset":
+        _push_demo_subset(
+            target_db_url=args.target_db_url,
+            top_n=args.top_n,
+            quarters=args.quarters,
+            bo_keep_days=args.bo_keep_days,
+            insider_keep_days=args.insider_keep_days,
+            batch_size=args.batch_size,
+            skip_schema_init=args.skip_schema_init,
+            dry_run=args.dry_run,
         )
     elif args.command == "refresh-aggregates":
         _refresh_aggregates()

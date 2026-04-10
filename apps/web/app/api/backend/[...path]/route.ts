@@ -18,7 +18,7 @@ function buildForwardHeaders(req: NextRequest): Headers {
   return headers;
 }
 
-type RouteCtx = { params: Promise<{ path: string[] }> | { path: string[] } };
+type RouteCtx = { params: Promise<{ path: string[] }> };
 
 async function proxy(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   const params = await ctx.params;

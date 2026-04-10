@@ -75,6 +75,12 @@ Set at minimum:
 - `SEC_USER_AGENT=Your Name your.email@example.com`
 - `API_DB_URL=postgresql+psycopg://flow:flow@127.0.0.1:5433/flowdb` (or SQLite URL)
 
+For Supabase auth in the web app:
+- Copy `apps/web/.env.local.example` to `apps/web/.env.local`
+- Set:
+  - `NEXT_PUBLIC_SUPABASE_URL`
+  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
 ### 2) Start Postgres (recommended)
 
 ```bash
@@ -111,6 +117,7 @@ npm run dev
 
 Open:
 - `http://localhost:3000`
+- `http://localhost:3000/login` (email magic-link sign-in)
 
 ## Pipeline Commands
 
@@ -169,11 +176,31 @@ python -m app.cli update-13dg-feed \
 python -m app.cli update-form4-feed --days 14 --max-filings 0
 ```
 
+### Push a bounded demo subset to remote Postgres (Supabase)
+
+This keeps local ingestion as the source of truth, then publishes a small remote subset for demo/testing.
+
+```bash
+python -m app.cli push-demo-subset \
+  --target-db-url "postgresql+psycopg://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?sslmode=require" \
+  --top-n 7 \
+  --quarters 2 \
+  --bo-keep-days 180 \
+  --insider-keep-days 120
+```
+
+Or via wrapper script (reads env vars from `.env`):
+
+```bash
+./scripts/push_demo_subset.sh
+```
+
 ### Cron Scheduling (recommended)
 
 Use the provided scripts:
 - `scripts/cron_form4_feed.sh`
 - `scripts/cron_13dg_feed.sh`
+- `scripts/push_demo_subset.sh`
 
 Example crontab (Form 4 every 30m, 13D/G daily at 02:10 local time):
 

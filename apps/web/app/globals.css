@@ -131,6 +131,12 @@ a {
   -webkit-text-fill-color: #f8fafc !important;
 }
 
+.brand-wordmark-sixtyfour {
+  font-family: "Sixtyfour Convergence", "JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-variation-settings: "BLED" 0, "SCAN" 0;
+  letter-spacing: 0.02em;
+}
+
 .shell-header {
   position: sticky;
   top: 0;
