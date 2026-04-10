@@ -220,6 +220,7 @@ All routes are implemented in `app/api/routes.py`.
 | POST | `/jobs/refresh-universe` | Recompute top-N institution universe | `top_n` |
 | POST | `/jobs/enrich-cusips` | CUSIP->ticker enrichment in scope | `provider`, `recent_quarters`, `top_n`, `limit_cusips` |
 | POST | `/jobs/update-13dg-feed` | Daily 13D/G discovery+ingest+resolve+cleanup | `top_n`, `per_manager_limit`, `resolve_limit`, discovery/retention toggles |
+| POST | `/jobs/update-form4-feed` | Daily Form 4 discovery+ingest | `days`, `max_filings` (`0` = all discovered) |
 
 ## 5.3 Product Data APIs
 
@@ -276,7 +277,7 @@ All routes are implemented in `app/api/routes.py`.
 
 Primary command groups (`python -m app.cli`):
 - bootstrap/init: `init-db`, `ingest-cik-list`, `discover-13f-ciks`, `seed-top-aum`
-- ingest/update: `ingest-13f`, `ingest-13dg`, `ingest-universe`, `update-incremental`, `update-13dg-feed`
+- ingest/update: `ingest-13f`, `ingest-13dg`, `ingest-universe`, `update-incremental`, `update-13dg-feed`, `update-form4-feed`
 - mapping/enrichment: `resolve-mappings`, `sync-tickers`, `enrich-cusips`
 - analytics/universe: `refresh-aggregates`, `refresh-universe`, `resume-post-ingest`
 - maintenance: `cleanup-13dg`

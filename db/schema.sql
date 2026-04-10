@@ -242,6 +242,51 @@ ON beneficial_ownership_events (manager_id, report_date);
 CREATE INDEX IF NOT EXISTS ix_bo_filing_id
 ON beneficial_ownership_events (filing_id);
 
+-- Parsed insider transactions from Form 4 / 4-A.
+CREATE TABLE IF NOT EXISTS insider_transactions (
+  insider_tx_id INTEGER PRIMARY KEY,
+  filing_id INTEGER NOT NULL REFERENCES filings (filing_id),
+  security_id INTEGER REFERENCES securities (security_id),
+  issuer_cik TEXT,
+  issuer_name TEXT,
+  issuer_trading_symbol TEXT,
+  reporting_owner_cik TEXT,
+  reporting_owner_name TEXT,
+  reporting_owner_title TEXT,
+  role_group TEXT,                -- CEO, CFO, OFFICER, DIRECTOR, TEN_PCT_OWNER, OTHER
+  is_director INTEGER NOT NULL DEFAULT 0 CHECK (is_director IN (0, 1)),
+  is_officer INTEGER NOT NULL DEFAULT 0 CHECK (is_officer IN (0, 1)),
+  is_ten_percent_owner INTEGER NOT NULL DEFAULT 0 CHECK (is_ten_percent_owner IN (0, 1)),
+  is_other INTEGER NOT NULL DEFAULT 0 CHECK (is_other IN (0, 1)),
+  transaction_date TEXT NOT NULL,
+  transaction_code TEXT,
+  acquisition_disposition TEXT,   -- A or D
+  ownership_nature TEXT,          -- D or I
+  is_derivative INTEGER NOT NULL DEFAULT 0 CHECK (is_derivative IN (0, 1)),
+  transaction_shares REAL,
+  transaction_price REAL,
+  shares_owned_following REAL,
+  transaction_value_usd REAL,
+  signal_type TEXT,               -- OPEN_MARKET_BUY, OPEN_MARKET_SELL, DERIVATIVE, OTHER
+  row_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_insider_tx_dedup
+ON insider_transactions (filing_id, row_hash);
+
+CREATE INDEX IF NOT EXISTS ix_insider_tx_date
+ON insider_transactions (transaction_date);
+
+CREATE INDEX IF NOT EXISTS ix_insider_tx_symbol_date
+ON insider_transactions (issuer_trading_symbol, transaction_date);
+
+CREATE INDEX IF NOT EXISTS ix_insider_tx_security_date
+ON insider_transactions (security_id, transaction_date);
+
+CREATE INDEX IF NOT EXISTS ix_insider_tx_signal_date
+ON insider_transactions (signal_type, transaction_date);
+
 -- Source-specific API budget and request tracking.
 CREATE TABLE IF NOT EXISTS api_budgets (
   provider TEXT PRIMARY KEY,      -- SEC, POLYGON, AV, YF

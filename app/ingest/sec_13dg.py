@@ -26,6 +26,7 @@ _CUSIP_CONTEXT_RE = re.compile(
 )
 _CUSIP_TOKEN_RE = re.compile(r"\b([0-9A-Z]{8,9})\b")
 PCT_RE = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
+_NUMBER_TOKEN_RE = re.compile(r"(?<![A-Z0-9])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?![A-Z0-9])")
 _ISSUER_RE = re.compile(
     r"(?is)\b(?:Name\s+of\s+Issuer|Issuer\s+Name)\b\s*[:\-]?\s*([^\n\r]{3,140})"
 )
@@ -50,6 +51,19 @@ _ISSUER_BAD_EXACT = {
     "NAME",
     "ISSUER",
 }
+_SHARES_XML_PATTERNS = [
+    re.compile(
+        r"(?is)<\s*aggregateamountbeneficiallyowned\s*>([^<]{1,40})<\s*/\s*aggregateamountbeneficiallyowned\s*>"
+    ),
+    re.compile(r"(?is)<\s*amountbeneficiallyowned\s*>([^<]{1,40})<\s*/\s*amountbeneficiallyowned\s*>"),
+    re.compile(r"(?is)<\s*sharesbeneficiallyowned\s*>([^<]{1,40})<\s*/\s*sharesbeneficiallyowned\s*>"),
+]
+_SHARES_CONTEXT_KEYS = [
+    "aggregate amount beneficially owned",
+    "amount beneficially owned",
+    "shares beneficially owned",
+    "amount beneficially owned by each reporting person",
+]
 
 
 def _cusip_char_value(ch: str) -> int | None:
@@ -207,6 +221,50 @@ def _extract_percent_owned(text_body: str) -> float | None:
         return None
     val = float(m.group(1))
     return val if 0 <= val <= 100 else None
+
+
+def _parse_positive_number(raw: str | None) -> float | None:
+    if raw is None:
+        return None
+    token = str(raw).strip().replace(",", "")
+    if not token:
+        return None
+    try:
+        value = float(token)
+    except Exception:
+        return None
+    if value < 0:
+        return None
+    return value
+
+
+def _extract_shares_owned(text_body: str) -> float | None:
+    for pattern in _SHARES_XML_PATTERNS:
+        for match in pattern.finditer(text_body):
+            value = _parse_positive_number(match.group(1))
+            if value is not None and value >= 1:
+                return value
+
+    lowered = text_body.lower()
+    for key in _SHARES_CONTEXT_KEYS:
+        idx = lowered.find(key)
+        if idx < 0:
+            continue
+        window = text_body[idx : idx + 700]
+        for match in _NUMBER_TOKEN_RE.finditer(window):
+            token = match.group(1)
+            suffix = window[match.end() : match.end() + 2]
+            if "%" in suffix:
+                continue
+            value = _parse_positive_number(token)
+            if value is None:
+                continue
+            # Skip likely row/item numbers in contextual scans.
+            if value <= 25 and token.isdigit() and len(token) <= 2:
+                continue
+            if value >= 1:
+                return value
+    return None
 
 
 @dataclass
@@ -393,6 +451,7 @@ class Sec13DGIngestionService:
                 cusip_raw = _extract_cusip(body)
                 issuer_name_raw = _extract_issuer_name(body)
                 percent_owned = _extract_percent_owned(body)
+                shares_owned = _extract_shares_owned(body)
                 event_type = self._classify_event(
                     manager_id=manager_id,
                     cusip_raw=cusip_raw,
@@ -409,7 +468,7 @@ class Sec13DGIngestionService:
                           mapping_status, mapping_confidence
                         ) VALUES (
                           :filing_id, :manager_id, NULL, :report_date, :event_type,
-                          :percent_beneficial_owned, NULL,
+                          :percent_beneficial_owned, :shares_beneficial_owned,
                           :cusip_raw, :issuer_name_raw, NULL, :details_json,
                           'UNMAPPED', NULL
                         )
@@ -421,11 +480,12 @@ class Sec13DGIngestionService:
                         "report_date": report_date,
                         "event_type": event_type,
                         "percent_beneficial_owned": percent_owned,
+                        "shares_beneficial_owned": shares_owned,
                         "cusip_raw": cusip_raw,
                         "issuer_name_raw": issuer_name_raw,
                         "details_json": (
-                            json.dumps({"parse_version": 2})
-                            if (cusip_raw or issuer_name_raw or percent_owned is not None)
+                            json.dumps({"parse_version": 3})
+                            if (cusip_raw or issuer_name_raw or percent_owned is not None or shares_owned is not None)
                             else None
                         ),
                     },

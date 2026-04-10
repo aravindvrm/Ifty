@@ -11,10 +11,12 @@ import {
   get13DGFeed,
   getInstitution,
   getSecurity,
+  getSecurityInsiders,
   getSecurityEventsFiltered,
   type Feed13DGResponse,
   type InstitutionPageResponse,
   type SecurityEventResponse,
+  type SecurityInsiderFeedResponse,
   type SecurityPageResponse,
 } from "@/lib/api";
 import { fmtNumber, fmtPct, fmtUsd, fmtUsdThousands } from "@/lib/format";
@@ -38,6 +40,19 @@ function defaultEvents(): SecurityEventResponse {
   };
 }
 
+function defaultSecurityInsiders(): SecurityInsiderFeedResponse {
+  return {
+    security_id: 0,
+    ticker: "",
+    filters: {
+      signal_type: null,
+      start_date: "",
+      end_date: "",
+    },
+    rows: [],
+  };
+}
+
 type FeedRow = Feed13DGResponse["rows"][number];
 
 function toEventClass(eventType: string): string {
@@ -50,6 +65,48 @@ function toEventClass(eventType: string): string {
     return `${base} border-rose-400/40 bg-rose-400/10 text-rose-300`;
   }
   return `${base} border-slate-500/50 bg-slate-500/10 text-slate-300`;
+}
+
+function toIntentClass(intentClass: string | null | undefined): string {
+  const value = (intentClass || "").toUpperCase();
+  const base = "inline-flex rounded-none border px-2 py-0.5 text-[11px]";
+  if (value === "13D") {
+    return `${base} border-amber-400/40 bg-amber-400/10 text-amber-300`;
+  }
+  if (value === "13G") {
+    return `${base} border-sky-400/40 bg-sky-400/10 text-sky-300`;
+  }
+  return `${base} border-slate-500/50 bg-slate-500/10 text-slate-400`;
+}
+
+function toMaterialityClass(bucket: string | null | undefined): string {
+  const value = (bucket || "").toUpperCase();
+  const base = "inline-flex rounded-none border px-2 py-0.5 text-[11px]";
+  if (value === "MAJOR") {
+    return `${base} border-fuchsia-400/40 bg-fuchsia-400/10 text-fuchsia-300`;
+  }
+  if (value === "MODERATE") {
+    return `${base} border-violet-400/40 bg-violet-400/10 text-violet-300`;
+  }
+  if (value === "MINOR") {
+    return `${base} border-indigo-400/40 bg-indigo-400/10 text-indigo-300`;
+  }
+  return `${base} border-slate-500/50 bg-slate-500/10 text-slate-400`;
+}
+
+function toInsiderSignalClass(signalType: string | null | undefined): string {
+  const value = (signalType || "").toUpperCase();
+  const base = "inline-flex rounded-none border px-2 py-0.5 text-[11px]";
+  if (value === "OPEN_MARKET_BUY") {
+    return `${base} border-emerald-400/40 bg-emerald-400/10 text-emerald-300`;
+  }
+  if (value === "OPEN_MARKET_SELL") {
+    return `${base} border-rose-400/40 bg-rose-400/10 text-rose-300`;
+  }
+  if (value === "DERIVATIVE") {
+    return `${base} border-sky-400/40 bg-sky-400/10 text-sky-300`;
+  }
+  return `${base} border-slate-500/50 bg-slate-500/10 text-slate-400`;
 }
 
 function displayFeedSecurity(row: FeedRow): string {
@@ -71,6 +128,7 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
   const [security, setSecurity] = useState<SecurityPageResponse | null>(null);
   const [institution, setInstitution] = useState<InstitutionPageResponse | null>(null);
   const [events, setEvents] = useState<SecurityEventResponse>(defaultEvents());
+  const [securityInsiders, setSecurityInsiders] = useState<SecurityInsiderFeedResponse>(defaultSecurityInsiders());
   const [institutionFeedRows, setInstitutionFeedRows] = useState<FeedRow[]>([]);
   const [institutionFeedError, setInstitutionFeedError] = useState("");
 
@@ -86,6 +144,7 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
         setSecurity(null);
         setInstitution(null);
         setEvents(defaultEvents());
+        setSecurityInsiders(defaultSecurityInsiders());
         setInstitutionFeedRows([]);
         setInstitutionFeedError("");
         return;
@@ -96,12 +155,13 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
       setSecurity(null);
       setInstitution(null);
       setEvents(defaultEvents());
+      setSecurityInsiders(defaultSecurityInsiders());
       setInstitutionFeedRows([]);
       setInstitutionFeedError("");
 
       try {
         if (selection.type === "security") {
-          const [securityResponse, eventsResponse] = await Promise.all([
+          const [securityResponse, eventsResponse, insidersResponse] = await Promise.all([
             getSecurity(selection.key),
             getSecurityEventsFiltered(selection.key, {
               new5pctOnly: false,
@@ -109,10 +169,15 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
               endDate: shiftDate(0),
               limitN: 300,
             }),
+            getSecurityInsiders(selection.key, {
+              days: 3650,
+              limitN: 200,
+            }),
           ]);
           if (cancelled) return;
           setSecurity(securityResponse);
           setEvents(eventsResponse);
+          setSecurityInsiders(insidersResponse);
         } else {
           const [institutionResult, feedResult] = await Promise.allSettled([
             getInstitution(selection.key),
@@ -381,7 +446,10 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
                   <th className="px-3 py-2">Date</th>
                   <th className="px-3 py-2">Institution</th>
                   <th className="px-3 py-2">Event</th>
+                  <th className="px-3 py-2">Intent</th>
+                  <th className="px-3 py-2">Materiality</th>
                   <th className="px-3 py-2 text-right">Percent Owned</th>
+                  <th className="px-3 py-2 text-right">% Δ Owned</th>
                   <th className="px-3 py-2">Form</th>
                 </tr>
               </thead>
@@ -402,13 +470,80 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
                         event.manager_name ?? "Unknown"
                       )}
                     </td>
-                    <td className="px-3 py-2">{event.event_type}</td>
+                    <td className="px-3 py-2">
+                      <span className={toEventClass(event.event_type)}>{event.event_label || event.event_type}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={toIntentClass(event.intent_class)}>{event.intent_class || "-"}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={toMaterialityClass(event.materiality_bucket)}>
+                        {event.materiality_bucket || "-"}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 text-right">
                       {event.percent_beneficial_owned === null ? "-" : `${event.percent_beneficial_owned.toFixed(2)}%`}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatPercentChange(event.percent_beneficial_change)}
                     </td>
                     <td className="px-3 py-2">{event.form_type}</td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
+          <h2 className="text-lg font-semibold text-slate-100">Insider Activity (Form 4)</h2>
+          <div className="mt-4 overflow-x-auto rounded-none border border-line/70">
+            <table className="min-w-full divide-y divide-line/60 text-sm">
+              <thead>
+                <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2">Date</th>
+                  <th className="px-3 py-2">Insider</th>
+                  <th className="px-3 py-2">Role</th>
+                  <th className="px-3 py-2">Signal</th>
+                  <th className="px-3 py-2 text-right">Shares</th>
+                  <th className="px-3 py-2 text-right">Price</th>
+                  <th className="px-3 py-2 text-right">Value</th>
+                  <th className="px-3 py-2">Code</th>
+                  <th className="px-3 py-2">Form</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line/50 text-slate-300">
+                {securityInsiders.rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-3 py-4 text-center text-sm text-slate-500">
+                      No insider transactions available.
+                    </td>
+                  </tr>
+                ) : (
+                  securityInsiders.rows.map((row) => (
+                    <tr key={`security-insider-${row.insider_tx_id}`}>
+                      <td className="px-3 py-2 text-xs text-slate-400">{row.transaction_date}</td>
+                      <td className="px-3 py-2">{row.reporting_owner_name || "-"}</td>
+                      <td className="px-3 py-2">{row.role_group || "-"}</td>
+                      <td className="px-3 py-2">
+                        <span className={toInsiderSignalClass(row.signal_type)}>{row.signal_type || "-"}</span>
+                      </td>
+                      <td className="px-3 py-2 text-right">{fmtNumber(row.transaction_shares || 0)}</td>
+                      <td className="px-3 py-2 text-right">
+                        {row.transaction_price === null || row.transaction_price === undefined
+                          ? "-"
+                          : fmtUsd(row.transaction_price)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {row.transaction_value_usd === null || row.transaction_value_usd === undefined
+                          ? "-"
+                          : fmtUsd(row.transaction_value_usd)}
+                      </td>
+                      <td className="px-3 py-2">{row.transaction_code || "-"}</td>
+                      <td className="px-3 py-2">{row.form_type || "-"}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -617,6 +752,8 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
               <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
                 <th className="px-3 py-2">Date</th>
                 <th className="px-3 py-2">Event</th>
+                <th className="px-3 py-2">Intent</th>
+                <th className="px-3 py-2">Materiality</th>
                 <th className="px-3 py-2">Security</th>
                 <th className="px-3 py-2 text-right">% Owned</th>
                 <th className="px-3 py-2 text-right">% Δ Owned</th>
@@ -626,7 +763,7 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
             <tbody className="divide-y divide-line/50 text-slate-300">
               {institutionFeedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-4 text-center text-sm text-slate-500">
+                  <td colSpan={8} className="px-3 py-4 text-center text-sm text-slate-500">
                     {institutionFeedError ? `13D/G feed unavailable: ${institutionFeedError}` : "No 13D/G events found."}
                   </td>
                 </tr>
@@ -635,7 +772,15 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
                   <tr key={`institution-13dg-${row.bo_event_id}`}>
                     <td className="px-3 py-2 text-xs text-slate-400">{row.report_date}</td>
                     <td className="px-3 py-2">
-                      <span className={toEventClass(row.event_type)}>{row.event_type}</span>
+                      <span className={toEventClass(row.event_type)}>{row.event_label || row.event_type}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={toIntentClass(row.intent_class)}>{row.intent_class || "-"}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={toMaterialityClass(row.materiality_bucket)}>
+                        {row.materiality_bucket || "-"}
+                      </span>
                     </td>
                     <td className="px-3 py-2">
                       {row.ticker ? (

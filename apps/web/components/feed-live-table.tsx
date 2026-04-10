@@ -118,19 +118,19 @@ export function FeedLiveTable({
   }, [search, eventType, formType, windowDays]);
 
   return (
-    <>
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+    <div className="activity-controls-rounded space-y-8">
+      <div className="mx-auto grid w-full max-w-[1120px] grid-cols-1 gap-3 lg:grid-cols-12">
         <input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search ticker, security, institution, CUSIP..."
-          className="rounded-none border border-line/80 bg-card/70 px-2.5 py-1.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70 lg:col-span-4"
+          className="activity-pill h-11 border border-line/80 bg-card/70 px-4 text-[15px] text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70 lg:col-span-6"
         />
         <div className="relative lg:col-span-2">
           <select
             value={eventType}
             onChange={(event) => setEventType(event.target.value)}
-            className="w-full appearance-none rounded-none border border-line/70 bg-transparent px-2 py-1 text-xs text-slate-200 outline-none transition focus:border-accentBlue/70"
+            className="activity-pill h-11 w-full appearance-none border border-line/70 bg-card/60 px-4 text-sm text-slate-200 outline-none transition focus:border-accentBlue/70"
           >
             <option value="ALL">All Events</option>
             {eventTypes.map((value) => (
@@ -139,13 +139,13 @@ export function FeedLiveTable({
               </option>
             ))}
           </select>
-          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
         </div>
         <div className="relative lg:col-span-2">
           <select
             value={formType}
             onChange={(event) => setFormType(event.target.value)}
-            className="w-full appearance-none rounded-none border border-line/70 bg-transparent px-2 py-1 text-xs text-slate-200 outline-none transition focus:border-accentBlue/70"
+            className="activity-pill h-11 w-full appearance-none border border-line/70 bg-card/60 px-4 text-sm text-slate-200 outline-none transition focus:border-accentBlue/70"
           >
             <option value="ALL">All Forms</option>
             {formTypes.map((value) => (
@@ -154,13 +154,13 @@ export function FeedLiveTable({
               </option>
             ))}
           </select>
-          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
         </div>
         <div className="relative lg:col-span-2">
           <select
             value={windowDays}
             onChange={(event) => setWindowDays(event.target.value)}
-            className="w-full appearance-none rounded-none border border-line/70 bg-transparent px-2 py-1 text-xs text-slate-200 outline-none transition focus:border-accentBlue/70"
+            className="activity-pill h-11 w-full appearance-none border border-line/70 bg-card/60 px-4 text-sm text-slate-200 outline-none transition focus:border-accentBlue/70"
           >
             <option value="7">Last 7D</option>
             <option value="30">Last 30D</option>
@@ -169,18 +169,13 @@ export function FeedLiveTable({
             <option value="365">Last 1Y</option>
             <option value="ALL">All Dates</option>
           </select>
-          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-        </div>
-        <div className="flex items-center justify-end lg:col-span-2">
-          <span className="rounded-none border border-line/70 bg-transparent px-2 py-1 text-[11px] text-slate-400">
-            Mode: High Quality Mapped
-          </span>
+          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-400">
+      <div className="flex w-full flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
         <span>
-          Showing <strong>{liveRows.length.toLocaleString("en-US")}</strong> events
+          Showing <span className="text-slate-400">{liveRows.length.toLocaleString("en-US")}</span> events
           {loading ? " • Updating..." : ""}
         </span>
         {(search || eventType !== "ALL" || formType !== "ALL" || windowDays !== "90") && (
@@ -192,14 +187,14 @@ export function FeedLiveTable({
               setFormType("ALL");
               setWindowDays("90");
             }}
-            className="rounded-none border border-line/80 bg-card/70 px-2.5 py-1 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-slate-100"
+            className="activity-pill border border-line/80 bg-card/70 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accentBlue/70 hover:text-slate-100"
           >
             Clear Filters
           </button>
         )}
       </div>
 
-      <div className="mt-3 overflow-x-auto rounded-none border border-line/70">
+      <div className="overflow-x-auto rounded-none border border-line/70">
         <table className="min-w-full divide-y divide-line/60 text-sm">
           <thead>
             <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
@@ -280,6 +275,6 @@ export function FeedLiveTable({
           </tbody>
         </table>
       </div>
-    </>
+    </div>
   );
 }

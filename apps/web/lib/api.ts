@@ -87,10 +87,16 @@ export type SecurityEventResponse = {
   rows: Array<{
     report_date: string;
     event_type: string;
+    event_label: string;
     percent_beneficial_owned: number | null;
+    prev_percent_beneficial_owned: number | null;
+    percent_beneficial_change: number | null;
     shares_beneficial_owned: number | null;
     cusip_raw: string | null;
     mapping_status: string;
+    intent_class: "13D" | "13G" | null;
+    materiality_bucket: "MINOR" | "MODERATE" | "MAJOR" | null;
+    threshold_crossings: string[];
     manager_id: number | null;
     manager_name: string | null;
     form_type: string;
@@ -414,6 +420,9 @@ export type Feed13DGResponse = {
     ticker: string | null;
     manager_key: string | null;
     q: string | null;
+    intent_class: "13D" | "13G" | null;
+    materiality_bucket: "MINOR" | "MODERATE" | "MAJOR" | null;
+    threshold_crossing: string | null;
   };
   counts: {
     rows: number;
@@ -423,6 +432,7 @@ export type Feed13DGResponse = {
     bo_event_id: number;
     report_date: string;
     event_type: string;
+    event_label: string;
     percent_beneficial_owned: number | null;
     prev_percent_beneficial_owned: number | null;
     percent_beneficial_change: number | null;
@@ -445,6 +455,105 @@ export type Feed13DGResponse = {
     form_type: string;
     filed_at: string | null;
     sec_url: string | null;
+    intent_class: "13D" | "13G" | null;
+    materiality_bucket: "MINOR" | "MODERATE" | "MAJOR" | null;
+    threshold_crossings: string[];
+  }>;
+};
+
+export type InsiderFeedResponse = {
+  start_date: string;
+  end_date: string;
+  filters: {
+    signal_type: "OPEN_MARKET_BUY" | "OPEN_MARKET_SELL" | "DERIVATIVE" | "OTHER" | null;
+    role_group: "CEO" | "CFO" | "OFFICER" | "DIRECTOR" | "TEN_PCT_OWNER" | "OTHER" | null;
+    ticker: string | null;
+    q: string | null;
+  };
+  counts: {
+    rows: number;
+    by_signal_type: Record<string, number>;
+  };
+  rows: Array<{
+    insider_tx_id: number;
+    transaction_date: string;
+    signal_type: "OPEN_MARKET_BUY" | "OPEN_MARKET_SELL" | "DERIVATIVE" | "OTHER" | null;
+    issuer_cik: string | null;
+    issuer_name: string | null;
+    issuer_trading_symbol: string | null;
+    security_id: number | null;
+    ticker: string | null;
+    reporting_owner_cik: string | null;
+    reporting_owner_name: string | null;
+    reporting_owner_title: string | null;
+    role_group: "CEO" | "CFO" | "OFFICER" | "DIRECTOR" | "TEN_PCT_OWNER" | "OTHER" | null;
+    is_director: number;
+    is_officer: number;
+    is_ten_percent_owner: number;
+    is_other: number;
+    transaction_code: string | null;
+    acquisition_disposition: string | null;
+    ownership_nature: string | null;
+    is_derivative: number;
+    transaction_shares: number | null;
+    transaction_price: number | null;
+    transaction_value_usd: number | null;
+    shares_owned_following: number | null;
+    form_type: string;
+    filed_at: string | null;
+    accession_no: string;
+    sec_url: string | null;
+  }>;
+};
+
+export type SecurityInsiderFeedResponse = {
+  security_id: number;
+  ticker: string;
+  filters: {
+    signal_type: "OPEN_MARKET_BUY" | "OPEN_MARKET_SELL" | "DERIVATIVE" | "OTHER" | null;
+    start_date: string;
+    end_date: string;
+  };
+  rows: Array<{
+    insider_tx_id: number;
+    transaction_date: string;
+    signal_type: "OPEN_MARKET_BUY" | "OPEN_MARKET_SELL" | "DERIVATIVE" | "OTHER" | null;
+    issuer_name: string | null;
+    issuer_trading_symbol: string | null;
+    reporting_owner_name: string | null;
+    reporting_owner_title: string | null;
+    role_group: "CEO" | "CFO" | "OFFICER" | "DIRECTOR" | "TEN_PCT_OWNER" | "OTHER" | null;
+    transaction_code: string | null;
+    acquisition_disposition: string | null;
+    ownership_nature: string | null;
+    is_derivative: number;
+    transaction_shares: number | null;
+    transaction_price: number | null;
+    transaction_value_usd: number | null;
+    shares_owned_following: number | null;
+    form_type: string;
+    filed_at: string | null;
+    accession_no: string;
+    sec_url: string | null;
+  }>;
+};
+
+export type InsiderClusterResponse = {
+  start_date: string;
+  end_date: string;
+  filters: {
+    signal_type: "OPEN_MARKET_BUY" | "OPEN_MARKET_SELL";
+    min_distinct_insiders: number;
+    min_total_value_usd: number;
+  };
+  rows: Array<{
+    security_id: number | null;
+    ticker: string | null;
+    issuer_name: string | null;
+    tx_count: number;
+    distinct_insiders: number;
+    total_value_usd: number;
+    total_shares: number;
   }>;
 };
 
@@ -562,6 +671,9 @@ export function get13DGFeed(
     endDate?: string;
     eventType?: "NEW_5PCT" | "EXIT_5PCT" | "AMENDMENT_UP" | "AMENDMENT_DOWN" | "OTHER";
     formType?: string;
+    intentClass?: "13D" | "13G";
+    materialityBucket?: "MINOR" | "MODERATE" | "MAJOR";
+    thresholdCrossing?: "UP_5" | "DOWN_5" | "UP_10" | "DOWN_10" | "UP_20" | "DOWN_20" | "UP_50" | "DOWN_50";
     includeOther?: boolean;
     mappedOnly?: boolean;
     universeOnly?: boolean;
@@ -578,6 +690,9 @@ export function get13DGFeed(
   if (options?.endDate) params.set("end_date", options.endDate);
   if (options?.eventType) params.set("event_type", options.eventType);
   if (options?.formType) params.set("form_type", options.formType);
+  if (options?.intentClass) params.set("intent_class", options.intentClass);
+  if (options?.materialityBucket) params.set("materiality_bucket", options.materialityBucket);
+  if (options?.thresholdCrossing) params.set("threshold_crossing", options.thresholdCrossing);
   if (options?.includeOther !== undefined) params.set("include_other", options.includeOther ? "1" : "0");
   if (options?.mappedOnly !== undefined) params.set("mapped_only", options.mappedOnly ? "1" : "0");
   if (options?.universeOnly !== undefined) params.set("universe_only", options.universeOnly ? "1" : "0");
@@ -587,4 +702,70 @@ export function get13DGFeed(
   if (options?.q) params.set("q", options.q);
   const qs = params.toString();
   return requestJson<Feed13DGResponse>(`/feeds/13dg${qs ? `?${qs}` : ""}`);
+}
+
+export function getInsiderFeed(
+  options?: {
+    limitN?: number;
+    days?: number;
+    startDate?: string;
+    endDate?: string;
+    signalType?: "OPEN_MARKET_BUY" | "OPEN_MARKET_SELL" | "DERIVATIVE" | "OTHER";
+    roleGroup?: "CEO" | "CFO" | "OFFICER" | "DIRECTOR" | "TEN_PCT_OWNER" | "OTHER";
+    ticker?: string;
+    q?: string;
+  }
+) {
+  const params = new URLSearchParams();
+  if (options?.limitN !== undefined) params.set("limit_n", String(options.limitN));
+  if (options?.days !== undefined) params.set("days", String(options.days));
+  if (options?.startDate) params.set("start_date", options.startDate);
+  if (options?.endDate) params.set("end_date", options.endDate);
+  if (options?.signalType) params.set("signal_type", options.signalType);
+  if (options?.roleGroup) params.set("role_group", options.roleGroup);
+  if (options?.ticker) params.set("ticker", options.ticker.toUpperCase());
+  if (options?.q) params.set("q", options.q);
+  const qs = params.toString();
+  return requestJson<InsiderFeedResponse>(`/feeds/insiders${qs ? `?${qs}` : ""}`);
+}
+
+export function getSecurityInsiders(
+  ticker: string,
+  options?: {
+    limitN?: number;
+    days?: number;
+    signalType?: "OPEN_MARKET_BUY" | "OPEN_MARKET_SELL" | "DERIVATIVE" | "OTHER";
+  }
+) {
+  const params = new URLSearchParams();
+  if (options?.limitN !== undefined) params.set("limit_n", String(options.limitN));
+  if (options?.days !== undefined) params.set("days", String(options.days));
+  if (options?.signalType) params.set("signal_type", options.signalType);
+  const qs = params.toString();
+  return requestJson<SecurityInsiderFeedResponse>(
+    `/security/${encodeURIComponent(ticker.toUpperCase())}/insiders${qs ? `?${qs}` : ""}`
+  );
+}
+
+export function getInsiderClusters(
+  options?: {
+    days?: number;
+    limitN?: number;
+    minDistinctInsiders?: number;
+    minTotalValueUsd?: number;
+    signalType?: "OPEN_MARKET_BUY" | "OPEN_MARKET_SELL";
+  }
+) {
+  const params = new URLSearchParams();
+  if (options?.days !== undefined) params.set("days", String(options.days));
+  if (options?.limitN !== undefined) params.set("limit_n", String(options.limitN));
+  if (options?.minDistinctInsiders !== undefined) {
+    params.set("min_distinct_insiders", String(options.minDistinctInsiders));
+  }
+  if (options?.minTotalValueUsd !== undefined) {
+    params.set("min_total_value_usd", String(options.minTotalValueUsd));
+  }
+  if (options?.signalType) params.set("signal_type", options.signalType);
+  const qs = params.toString();
+  return requestJson<InsiderClusterResponse>(`/screeners/insider-clusters${qs ? `?${qs}` : ""}`);
 }

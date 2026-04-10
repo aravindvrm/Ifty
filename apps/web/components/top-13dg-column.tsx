@@ -206,7 +206,7 @@ export function Top13DGColumn({
                   row.manager_name ?? "-"
                 )}
               </span>
-              <span className={toEventClass(row.event_type)}>{toEventLabel(row.event_type)}</span>
+              <span className={toEventClass(row.event_type)}>{row.event_label || toEventLabel(row.event_type)}</span>
             </div>
           </div>
         );

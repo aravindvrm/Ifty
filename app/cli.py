@@ -125,6 +125,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Disable automatic 13D/G history pruning after update.",
     )
 
+    daily_form4 = sub.add_parser("update-form4-feed", help="Run daily Form 4 insider feed ingestion from SEC index.")
+    daily_form4.add_argument("--days", type=int, default=14, help="Number of successful daily index files to scan.")
+    daily_form4.add_argument(
+        "--max-filings",
+        type=int,
+        default=0,
+        help="Maximum distinct Form 4/4-A filings to process per run (0 = all discovered).",
+    )
+
     cleanup_13dg = sub.add_parser("cleanup-13dg", help="Prune old 13D/G rows and optionally vacuum/analyze.")
     cleanup_13dg.add_argument(
         "--keep-days",
@@ -1197,6 +1206,46 @@ def _update_13dg_feed(
         )
 
 
+def _update_form4_feed(
+    *,
+    days: int,
+    max_filings: int,
+) -> None:
+    from sqlalchemy.orm import Session
+
+    from app.clients.rate_limit import ProviderRateLimiter
+    from app.clients.sec_client import SecClient, build_sec_http_session
+    from app.pipeline.form4_feed import DailyForm4FeedUpdateService
+
+    settings = get_settings()
+    engine = get_engine()
+    ensure_schema_and_seed(engine)
+
+    limiter = ProviderRateLimiter()
+    limiter.register(provider="SEC", rate_per_sec=float(settings.sec_burst_per_second))
+    session = build_sec_http_session()
+
+    with Session(bind=engine) as db:
+        client = SecClient(session=session, limiter=limiter, db=db)
+        summary = DailyForm4FeedUpdateService(db=db, sec_client=client).run(
+            days=max(1, int(days)),
+            max_filings=max(0, int(max_filings)),
+        )
+        print(
+            "update_form4_feed "
+            f"days_requested={summary.days_requested} "
+            f"max_filings_requested={summary.max_filings_requested} "
+            f"max_filings_applied={(summary.max_filings_applied if summary.max_filings_applied is not None else 'ALL')} "
+            f"files_scanned={summary.files_scanned}/{summary.files_attempted} "
+            f"filings_discovered={summary.filings_discovered} "
+            f"filings_processed={summary.filings_processed} "
+            f"filings_upserted={summary.filings_upserted} "
+            f"transactions_inserted={summary.transactions_inserted} "
+            f"parse_failures={summary.parse_failures} "
+            f"run_ts_utc={summary.run_ts_utc}"
+        )
+
+
 def _ensure_pipeline_log_table(engine) -> None:
     from sqlalchemy.orm import Session
 
@@ -1669,6 +1718,11 @@ def main() -> None:
             skip_unchanged_ciks=not args.no_skip_unchanged_ciks,
             retention_days=(None if int(args.retention_days) <= 0 else int(args.retention_days)),
             apply_retention=not bool(args.no_retention_cleanup),
+        )
+    elif args.command == "update-form4-feed":
+        _update_form4_feed(
+            days=args.days,
+            max_filings=args.max_filings,
         )
     elif args.command == "cleanup-13dg":
         _cleanup_13dg(

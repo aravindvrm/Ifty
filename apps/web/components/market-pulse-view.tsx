@@ -1,8 +1,10 @@
 import { FlowDistributionHistogram } from "@/components/flow-distribution-histogram";
 import { Top13DGColumn } from "@/components/top-13dg-column";
 import { TopMoversColumn } from "@/components/top-movers-column";
-import { getHomeOverview } from "@/lib/api";
+import { TickerIcon } from "@/components/ticker-icon";
+import { getHomeOverview, getInsiderClusters, getInsiderFeed } from "@/lib/api";
 import { fmtNumber, fmtUsd } from "@/lib/format";
+import Link from "next/link";
 
 const TICKER_PATTERN = /^[A-Z]{1,6}(?:\.[A-Z]{1,2})?$/;
 const DERIVATIVE_NAME_PATTERN =
@@ -43,6 +45,32 @@ export async function MarketPulseView() {
   ] as const;
   const flowBins = overview.flow_distribution.bins ?? [];
   const flowFilters = overview.flow_distribution.filters ?? {};
+
+  const [insiderBuysResult, insiderSellsResult, insiderClustersResult] = await Promise.allSettled([
+    getInsiderFeed({
+      days: 30,
+      limitN: 6,
+      signalType: "OPEN_MARKET_BUY",
+    }),
+    getInsiderFeed({
+      days: 30,
+      limitN: 6,
+      signalType: "OPEN_MARKET_SELL",
+    }),
+    getInsiderClusters({
+      days: 30,
+      limitN: 6,
+      minDistinctInsiders: 2,
+      signalType: "OPEN_MARKET_BUY",
+    }),
+  ]);
+  const insiderBuys = insiderBuysResult.status === "fulfilled" ? insiderBuysResult.value.rows : [];
+  const insiderSells = insiderSellsResult.status === "fulfilled" ? insiderSellsResult.value.rows : [];
+  const insiderClusters = insiderClustersResult.status === "fulfilled" ? insiderClustersResult.value.rows : [];
+  const insiderLoadFailed =
+    insiderBuysResult.status === "rejected" ||
+    insiderSellsResult.status === "rejected" ||
+    insiderClustersResult.status === "rejected";
 
   return (
     <div className="space-y-10">
@@ -90,6 +118,151 @@ export async function MarketPulseView() {
           ) : (
             <p className="mt-3 text-sm text-slate-500">No flow distribution data available yet.</p>
           )}
+        </article>
+      </section>
+
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-100">Insider Activity</h2>
+          <Link href="/activity/insiders" className="text-xs uppercase tracking-[0.12em] text-slate-400 transition hover:text-slate-100">
+            View All
+          </Link>
+        </div>
+        <article className="rounded-none p-5">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3 xl:gap-0">
+            <div className="xl:pr-3">
+              <h2 className="text-base font-semibold text-slate-100">Insider Open-Market Buys (30d)</h2>
+              <div className="mt-3 overflow-x-auto rounded-none border border-line/70">
+                <table className="min-w-full divide-y divide-line/60 text-sm">
+                  <thead>
+                    <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <th className="px-3 py-2">Ticker</th>
+                      <th className="px-3 py-2 text-right">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line/50 text-slate-300">
+                    {insiderBuys.length === 0 ? (
+                      <tr>
+                        <td colSpan={2} className="px-3 py-4 text-center text-xs text-slate-500">
+                          {insiderLoadFailed ? "Insider feed unavailable." : "No buy activity in window."}
+                        </td>
+                      </tr>
+                    ) : (
+                      insiderBuys.map((row) => (
+                        <tr key={`insider-buy-${row.insider_tx_id}`}>
+                          <td className="px-3 py-2">
+                            {row.ticker ? (
+                              <Link
+                                prefetch={false}
+                                href={`/security/${encodeURIComponent(row.ticker)}`}
+                                className="inline-flex min-w-0 items-center gap-2 text-accentBlue hover:text-white"
+                              >
+                                <TickerIcon ticker={row.ticker} label={row.issuer_name} />
+                                <span className="font-medium">{row.ticker}</span>
+                              </Link>
+                            ) : (
+                              row.issuer_name || "-"
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right text-emerald-300">
+                            {row.transaction_value_usd === null ? "-" : fmtUsd(row.transaction_value_usd)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="xl:border-l xl:border-line/70 xl:px-3">
+              <h2 className="text-base font-semibold text-slate-100">Insider Open-Market Sells (30d)</h2>
+              <div className="mt-3 overflow-x-auto rounded-none border border-line/70">
+                <table className="min-w-full divide-y divide-line/60 text-sm">
+                  <thead>
+                    <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <th className="px-3 py-2">Ticker</th>
+                      <th className="px-3 py-2 text-right">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line/50 text-slate-300">
+                    {insiderSells.length === 0 ? (
+                      <tr>
+                        <td colSpan={2} className="px-3 py-4 text-center text-xs text-slate-500">
+                          {insiderLoadFailed ? "Insider feed unavailable." : "No sell activity in window."}
+                        </td>
+                      </tr>
+                    ) : (
+                      insiderSells.map((row) => (
+                        <tr key={`insider-sell-${row.insider_tx_id}`}>
+                          <td className="px-3 py-2">
+                            {row.ticker ? (
+                              <Link
+                                prefetch={false}
+                                href={`/security/${encodeURIComponent(row.ticker)}`}
+                                className="inline-flex min-w-0 items-center gap-2 text-accentBlue hover:text-white"
+                              >
+                                <TickerIcon ticker={row.ticker} label={row.issuer_name} />
+                                <span className="font-medium">{row.ticker}</span>
+                              </Link>
+                            ) : (
+                              row.issuer_name || "-"
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right text-rose-300">
+                            {row.transaction_value_usd === null ? "-" : fmtUsd(row.transaction_value_usd)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="xl:border-l xl:border-line/70 xl:pl-3">
+              <h2 className="text-base font-semibold text-slate-100">Insider Cluster Buys (30d)</h2>
+              <div className="mt-3 overflow-x-auto rounded-none border border-line/70">
+                <table className="min-w-full divide-y divide-line/60 text-sm">
+                  <thead>
+                    <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <th className="px-3 py-2">Ticker</th>
+                      <th className="px-3 py-2 text-right">Insiders</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line/50 text-slate-300">
+                    {insiderClusters.length === 0 ? (
+                      <tr>
+                        <td colSpan={2} className="px-3 py-4 text-center text-xs text-slate-500">
+                          {insiderLoadFailed ? "Cluster screener unavailable." : "No cluster buys in window."}
+                        </td>
+                      </tr>
+                    ) : (
+                      insiderClusters.map((row, idx) => (
+                        <tr key={`insider-cluster-${row.security_id ?? row.ticker ?? idx}`}>
+                          <td className="px-3 py-2">
+                            {row.ticker ? (
+                              <Link
+                                prefetch={false}
+                                href={`/security/${encodeURIComponent(row.ticker)}`}
+                                className="inline-flex min-w-0 items-center gap-2 text-accentBlue hover:text-white"
+                              >
+                                <TickerIcon ticker={row.ticker} label={row.issuer_name} />
+                                <span className="font-medium">{row.ticker}</span>
+                              </Link>
+                            ) : (
+                              row.issuer_name || "-"
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-200">{fmtNumber(row.distinct_insiders)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </article>
       </section>
 

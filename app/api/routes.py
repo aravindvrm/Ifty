@@ -15,16 +15,96 @@ from app.ingest.sec_13f import Sec13FIngestionService
 from app.ingest.sec_13dg import Sec13DGIngestionService
 from app.pipeline.universe import ManagerUniverseService
 from app.pipeline.bo_feed import Daily13DGFeedUpdateService
+from app.pipeline.form4_feed import DailyForm4FeedUpdateService
 from app.resolution.security_resolver import SecurityResolverService
 from app.resolution.ticker_enrichment import TickerEnrichmentService
 from app.enrichment.cusip_to_ticker import CusipToTickerEnrichmentService, NoopCusipProvider, OpenFigiCusipProvider
 from app.clients.rate_limit import ProviderRateLimiter
 from app.config import get_settings
+from app.db import ensure_schema_and_seed, get_engine
 
 router = APIRouter()
 
 _FEED_TICKER_RE = re.compile(r"^[A-Z]{1,6}(?:[./-][A-Z0-9]{1,4})?$")
 _FEED_ITEM_TOKEN_RE = re.compile(r"^ITEM\d+TO\d+$")
+_BO_THRESHOLDS = (5.0, 10.0, 20.0, 50.0)
+
+
+def _bo_intent_class(form_type: object) -> str | None:
+    value = str(form_type or "").upper()
+    if "13D" in value:
+        return "13D"
+    if "13G" in value:
+        return "13G"
+    return None
+
+
+def _bo_materiality_bucket(percent_change: object) -> str | None:
+    if percent_change is None:
+        return None
+    try:
+        change = abs(float(percent_change))
+    except Exception:
+        return None
+    if change < 1e-9:
+        return None
+    if change >= 5.0:
+        return "MAJOR"
+    if change >= 1.0:
+        return "MODERATE"
+    return "MINOR"
+
+
+def _bo_threshold_crossings(prev_pct: object, curr_pct: object) -> list[str]:
+    if prev_pct is None or curr_pct is None:
+        return []
+    try:
+        prev = float(prev_pct)
+        curr = float(curr_pct)
+    except Exception:
+        return []
+    out: list[str] = []
+    for threshold in _BO_THRESHOLDS:
+        if prev < threshold <= curr:
+            out.append(f"UP_{int(threshold)}")
+        elif prev >= threshold > curr:
+            out.append(f"DOWN_{int(threshold)}")
+    return out
+
+
+def _bo_event_label(event_type: object) -> str:
+    value = str(event_type or "").upper()
+    if value == "NEW_5PCT":
+        return "5% New"
+    if value == "AMENDMENT_UP":
+        return "Amendment Up"
+    if value == "AMENDMENT_DOWN":
+        return "Amendment Down"
+    if value == "EXIT_5PCT":
+        return "Exit < 5%"
+    return "Other"
+
+
+def _table_exists(db: Session, table_name: str) -> bool:
+    dialect = str(getattr(getattr(db, "bind", None), "dialect", None).name if getattr(db, "bind", None) else "").lower()
+    if dialect.startswith("postgres"):
+        exists = db.execute(
+            text("SELECT to_regclass(:relname) IS NOT NULL"),
+            {"relname": f"public.{table_name}"},
+        ).scalar()
+        return bool(exists)
+    row = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = :table_name
+            LIMIT 1
+            """
+        ),
+        {"table_name": table_name},
+    ).first()
+    return bool(row)
 
 
 def _clean_feed_label(raw: object) -> str | None:
@@ -646,6 +726,34 @@ def update_13dg_feed(
         "ingestion_failures": summary.ingestion_failures,
         "retention_cleanup": summary.retention_cleanup,
         "label_cleanup": summary.label_cleanup,
+    }
+
+
+@router.post("/jobs/update-form4-feed")
+def update_form4_feed(
+    days: int = Query(14, ge=1, le=366),
+    max_filings: int = Query(0, ge=0, le=50000, description="0 means process all discovered filings."),
+    db: Session = Depends(get_db),
+    sec_client: SecClient = Depends(get_sec_client),
+) -> dict:
+    # Postgres API startup skips schema bootstrap by design; run it here before Form 4 jobs.
+    ensure_schema_and_seed(get_engine())
+    summary = DailyForm4FeedUpdateService(db=db, sec_client=sec_client).run(
+        days=days,
+        max_filings=max_filings,
+    )
+    return {
+        "files_attempted": summary.files_attempted,
+        "files_scanned": summary.files_scanned,
+        "filings_discovered": summary.filings_discovered,
+        "filings_processed": summary.filings_processed,
+        "filings_upserted": summary.filings_upserted,
+        "transactions_inserted": summary.transactions_inserted,
+        "parse_failures": summary.parse_failures,
+        "days_requested": summary.days_requested,
+        "max_filings_requested": summary.max_filings_requested,
+        "max_filings_applied": summary.max_filings_applied,
+        "run_ts_utc": summary.run_ts_utc,
     }
 
 
@@ -1407,6 +1515,19 @@ def security_events_feed(
               b.report_date,
               b.event_type,
               b.percent_beneficial_owned,
+              (
+                SELECT b2.percent_beneficial_owned
+                FROM beneficial_ownership_events b2
+                WHERE b2.manager_id = b.manager_id
+                  AND b2.security_id = b.security_id
+                  AND (
+                    b2.report_date < b.report_date
+                    OR (b2.report_date = b.report_date AND b2.bo_event_id < b.bo_event_id)
+                  )
+                  AND b2.percent_beneficial_owned IS NOT NULL
+                ORDER BY b2.report_date DESC, b2.bo_event_id DESC
+                LIMIT 1
+              ) AS prev_percent_beneficial_owned,
               b.shares_beneficial_owned,
               b.cusip_raw,
               b.mapping_status,
@@ -1424,10 +1545,24 @@ def security_events_feed(
         ).bindparams(bindparam("scope_ids", expanding=True)),
         params,
     ).mappings().all()
+    out_rows: list[dict[str, object]] = []
+    for raw in rows:
+        row = dict(raw)
+        curr_pct = row.get("percent_beneficial_owned")
+        prev_pct = row.get("prev_percent_beneficial_owned")
+        if curr_pct is None or prev_pct is None:
+            row["percent_beneficial_change"] = None
+        else:
+            row["percent_beneficial_change"] = float(curr_pct) - float(prev_pct)
+        row["intent_class"] = _bo_intent_class(row.get("form_type"))
+        row["materiality_bucket"] = _bo_materiality_bucket(row.get("percent_beneficial_change"))
+        row["threshold_crossings"] = _bo_threshold_crossings(prev_pct, curr_pct)
+        row["event_label"] = _bo_event_label(row.get("event_type"))
+        out_rows.append(row)
     return {
         "security_id": security_id,
         "ticker": sec_row["ticker"],
-        "rows": [dict(x) for x in rows],
+        "rows": out_rows,
     }
 
 
@@ -1446,6 +1581,9 @@ def feed_13dg(
     ticker: str | None = Query(None, description="Optional ticker filter."),
     manager_key: str | None = Query(None, description="Optional manager_id or cik filter."),
     q: str | None = Query(None, description="Optional free-text search across ticker/security/cusip/institution/form/event."),
+    intent_class: str | None = Query(None, description="Optional derived intent filter: 13D or 13G."),
+    materiality_bucket: str | None = Query(None, description="Optional derived change bucket: MINOR, MODERATE, MAJOR."),
+    threshold_crossing: str | None = Query(None, description="Optional threshold crossing filter: UP_5, DOWN_5, UP_10, DOWN_10, UP_20, DOWN_20, UP_50, DOWN_50."),
     db: Session = Depends(get_db),
 ) -> dict:
     effective_end = end_date or datetime.now(UTC).date()
@@ -1546,6 +1684,36 @@ def feed_13dg(
                 """
             )
 
+    normalized_intent_class: str | None = None
+    if intent_class:
+        normalized_intent_class = intent_class.strip().upper()
+        if normalized_intent_class not in {"13D", "13G"}:
+            raise HTTPException(status_code=400, detail=f"Unsupported intent_class '{intent_class}'.")
+
+    normalized_materiality_bucket: str | None = None
+    if materiality_bucket:
+        normalized_materiality_bucket = materiality_bucket.strip().upper()
+        if normalized_materiality_bucket not in {"MINOR", "MODERATE", "MAJOR"}:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported materiality_bucket '{materiality_bucket}'.",
+            )
+
+    normalized_threshold_crossing: str | None = None
+    if threshold_crossing:
+        normalized_threshold_crossing = threshold_crossing.strip().upper()
+        if not re.fullmatch(r"(UP|DOWN)_(5|10|20|50)", normalized_threshold_crossing):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported threshold_crossing '{threshold_crossing}'.",
+            )
+
+    needs_derived_post_filter = any(
+        x is not None for x in (normalized_intent_class, normalized_materiality_bucket, normalized_threshold_crossing)
+    )
+    sql_limit_n = min(5000, max(limit_n, (limit_n * 5) if needs_derived_post_filter else limit_n))
+    params["limit_n_sql"] = sql_limit_n
+
     stmt = text(
         f"""
         SELECT
@@ -1609,7 +1777,7 @@ def feed_13dg(
             OR UPPER(COALESCE(s.instrument_type, '')) NOT IN ('OPTION', 'WARRANT', 'RIGHT')
           )
         ORDER BY b.report_date DESC, b.bo_event_id DESC
-        LIMIT :limit_n
+        LIMIT :limit_n_sql
         """
     )
     if scope_ids is not None:
@@ -1625,6 +1793,18 @@ def feed_13dg(
             row["percent_beneficial_change"] = None
         else:
             row["percent_beneficial_change"] = float(curr_pct) - float(prev_pct)
+        row["intent_class"] = _bo_intent_class(row.get("form_type"))
+        row["materiality_bucket"] = _bo_materiality_bucket(row.get("percent_beneficial_change"))
+        row["threshold_crossings"] = _bo_threshold_crossings(prev_pct, curr_pct)
+        row["event_label"] = _bo_event_label(row.get("event_type"))
+
+        if normalized_intent_class and row["intent_class"] != normalized_intent_class:
+            continue
+        if normalized_materiality_bucket and row["materiality_bucket"] != normalized_materiality_bucket:
+            continue
+        if normalized_threshold_crossing and normalized_threshold_crossing not in row["threshold_crossings"]:
+            continue
+
         security_display = _derive_feed_security_display(row)
         is_low_quality_security = int(security_display is None)
         if not include_low_quality and is_low_quality_security:
@@ -1632,6 +1812,8 @@ def feed_13dg(
         row["security_display"] = security_display
         row["is_low_quality_security"] = is_low_quality_security
         rows.append(row)
+        if len(rows) >= limit_n:
+            break
 
     event_counts: dict[str, int] = {}
     for row in rows:
@@ -1651,12 +1833,404 @@ def feed_13dg(
             "ticker": ticker.upper() if ticker else None,
             "manager_key": manager_key,
             "q": normalized_query,
+            "intent_class": normalized_intent_class,
+            "materiality_bucket": normalized_materiality_bucket,
+            "threshold_crossing": normalized_threshold_crossing,
         },
         "counts": {
             "rows": len(rows),
             "by_event_type": event_counts,
         },
         "rows": rows,
+    }
+
+
+@router.get("/feeds/insiders")
+def feed_insiders(
+    limit_n: int = Query(200, ge=1, le=2000),
+    days: int = Query(30, ge=1, le=3650),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+    signal_type: str | None = Query(
+        None,
+        description="Optional signal filter: OPEN_MARKET_BUY, OPEN_MARKET_SELL, DERIVATIVE, OTHER.",
+    ),
+    role_group: str | None = Query(
+        None,
+        description="Optional role filter: CEO, CFO, OFFICER, DIRECTOR, TEN_PCT_OWNER, OTHER.",
+    ),
+    ticker: str | None = Query(None, description="Optional ticker filter."),
+    q: str | None = Query(
+        None,
+        description="Optional free-text search across symbol/issuer/insider/role/transaction code.",
+    ),
+    db: Session = Depends(get_db),
+) -> dict:
+    if not _table_exists(db=db, table_name="insider_transactions"):
+        effective_end = end_date or datetime.now(UTC).date()
+        effective_start = start_date or (effective_end - timedelta(days=days))
+        return {
+            "start_date": effective_start.isoformat(),
+            "end_date": effective_end.isoformat(),
+            "filters": {
+                "signal_type": signal_type.strip().upper() if signal_type else None,
+                "role_group": role_group.strip().upper() if role_group else None,
+                "ticker": ticker.strip().upper() if ticker else None,
+                "q": q.strip().lower() if q else None,
+            },
+            "counts": {"rows": 0, "by_signal_type": {}},
+            "rows": [],
+            "warning": "insider_transactions table not initialized; run init-db or update-form4-feed first.",
+        }
+
+    effective_end = end_date or datetime.now(UTC).date()
+    effective_start = start_date or (effective_end - timedelta(days=days))
+    if effective_start > effective_end:
+        raise HTTPException(status_code=400, detail="start_date must be <= end_date.")
+
+    where_clauses = [
+        "t.transaction_date >= :start_date",
+        "t.transaction_date <= :end_date",
+    ]
+    params: dict[str, object] = {
+        "start_date": effective_start.isoformat(),
+        "end_date": effective_end.isoformat(),
+        "limit_n": limit_n,
+    }
+
+    normalized_signal_type: str | None = None
+    if signal_type:
+        normalized_signal_type = signal_type.strip().upper()
+        allowed_signal_types = {"OPEN_MARKET_BUY", "OPEN_MARKET_SELL", "DERIVATIVE", "OTHER"}
+        if normalized_signal_type not in allowed_signal_types:
+            raise HTTPException(status_code=400, detail=f"Unsupported signal_type '{signal_type}'.")
+        where_clauses.append("UPPER(COALESCE(t.signal_type, '')) = :signal_type")
+        params["signal_type"] = normalized_signal_type
+
+    normalized_role_group: str | None = None
+    if role_group:
+        normalized_role_group = role_group.strip().upper()
+        allowed_roles = {"CEO", "CFO", "OFFICER", "DIRECTOR", "TEN_PCT_OWNER", "OTHER"}
+        if normalized_role_group not in allowed_roles:
+            raise HTTPException(status_code=400, detail=f"Unsupported role_group '{role_group}'.")
+        where_clauses.append("UPPER(COALESCE(t.role_group, '')) = :role_group")
+        params["role_group"] = normalized_role_group
+
+    scope_ids: list[int] | None = None
+    normalized_ticker: str | None = None
+    if ticker:
+        normalized_ticker = ticker.strip().upper()
+        sec_row = _lookup_active_security_by_ticker(db=db, ticker=normalized_ticker)
+        if sec_row:
+            scope_ids = _resolve_security_scope_ids(db=db, ticker=normalized_ticker) or [int(sec_row["security_id"])]
+        if scope_ids:
+            where_clauses.append(
+                "(UPPER(COALESCE(t.issuer_trading_symbol, '')) = :ticker OR t.security_id IN :scope_ids)"
+            )
+            params["scope_ids"] = scope_ids
+        else:
+            where_clauses.append("UPPER(COALESCE(t.issuer_trading_symbol, '')) = :ticker")
+        params["ticker"] = normalized_ticker
+
+    normalized_query: str | None = None
+    if q and q.strip():
+        normalized_query = q.strip().lower()
+        query_terms = [token for token in re.split(r"\s+", normalized_query) if token][:6]
+        for i, token in enumerate(query_terms):
+            key = f"q_{i}"
+            params[key] = f"%{token}%"
+            where_clauses.append(
+                f"""
+                (
+                  LOWER(COALESCE(t.issuer_trading_symbol, '')) LIKE :{key}
+                  OR LOWER(COALESCE(t.issuer_name, '')) LIKE :{key}
+                  OR LOWER(COALESCE(t.reporting_owner_name, '')) LIKE :{key}
+                  OR LOWER(COALESCE(t.reporting_owner_title, '')) LIKE :{key}
+                  OR LOWER(COALESCE(t.role_group, '')) LIKE :{key}
+                  OR LOWER(COALESCE(t.transaction_code, '')) LIKE :{key}
+                  OR LOWER(COALESCE(t.signal_type, '')) LIKE :{key}
+                )
+                """
+            )
+
+    stmt = text(
+        f"""
+        SELECT
+          t.insider_tx_id,
+          t.transaction_date,
+          t.signal_type,
+          t.issuer_cik,
+          t.issuer_name,
+          t.issuer_trading_symbol,
+          t.security_id,
+          COALESCE(
+            (
+              SELECT si.id_value
+              FROM security_identifiers si
+              WHERE si.security_id = t.security_id
+                AND si.id_type = 'TICKER'
+                AND (si.valid_to IS NULL OR date('now') < date(si.valid_to))
+              ORDER BY si.valid_from DESC
+              LIMIT 1
+            ),
+            t.issuer_trading_symbol
+          ) AS ticker,
+          t.reporting_owner_cik,
+          t.reporting_owner_name,
+          t.reporting_owner_title,
+          t.role_group,
+          t.is_director,
+          t.is_officer,
+          t.is_ten_percent_owner,
+          t.is_other,
+          t.transaction_code,
+          t.acquisition_disposition,
+          t.ownership_nature,
+          t.is_derivative,
+          t.transaction_shares,
+          t.transaction_price,
+          t.transaction_value_usd,
+          t.shares_owned_following,
+          f.form_type,
+          f.filed_at,
+          f.accession_no,
+          f.sec_url
+        FROM insider_transactions t
+        JOIN filings f ON f.filing_id = t.filing_id
+        WHERE {' AND '.join(where_clauses)}
+        ORDER BY t.transaction_date DESC, t.insider_tx_id DESC
+        LIMIT :limit_n
+        """
+    )
+    if scope_ids:
+        stmt = stmt.bindparams(bindparam("scope_ids", expanding=True))
+    rows = [dict(x) for x in db.execute(stmt, params).mappings().all()]
+
+    by_signal: dict[str, int] = {}
+    for row in rows:
+        key = str(row.get("signal_type") or "UNKNOWN")
+        by_signal[key] = int(by_signal.get(key, 0) + 1)
+
+    return {
+        "start_date": effective_start.isoformat(),
+        "end_date": effective_end.isoformat(),
+        "filters": {
+            "signal_type": normalized_signal_type,
+            "role_group": normalized_role_group,
+            "ticker": normalized_ticker,
+            "q": normalized_query,
+        },
+        "counts": {
+            "rows": len(rows),
+            "by_signal_type": by_signal,
+        },
+        "rows": rows,
+    }
+
+
+@router.get("/security/{ticker}/insiders")
+def security_insider_feed(
+    ticker: str,
+    limit_n: int = Query(200, ge=1, le=2000),
+    days: int = Query(365, ge=1, le=3650),
+    signal_type: str | None = Query(
+        None,
+        description="Optional signal filter: OPEN_MARKET_BUY, OPEN_MARKET_SELL, DERIVATIVE, OTHER.",
+    ),
+    db: Session = Depends(get_db),
+) -> dict:
+    if not _table_exists(db=db, table_name="insider_transactions"):
+        sec_row = _lookup_active_security_by_ticker(db=db, ticker=ticker)
+        if not sec_row:
+            raise HTTPException(status_code=404, detail=f"No active security mapping found for ticker '{ticker}'.")
+        effective_end = datetime.now(UTC).date()
+        effective_start = effective_end - timedelta(days=days)
+        return {
+            "security_id": int(sec_row["security_id"]),
+            "ticker": str(sec_row["ticker"]),
+            "filters": {
+                "signal_type": signal_type.strip().upper() if signal_type else None,
+                "start_date": effective_start.isoformat(),
+                "end_date": effective_end.isoformat(),
+            },
+            "rows": [],
+            "warning": "insider_transactions table not initialized; run init-db or update-form4-feed first.",
+        }
+
+    sec_row = _lookup_active_security_by_ticker(db=db, ticker=ticker)
+    if not sec_row:
+        raise HTTPException(status_code=404, detail=f"No active security mapping found for ticker '{ticker}'.")
+    scope_ids = _resolve_security_scope_ids(db=db, ticker=ticker)
+    if not scope_ids:
+        scope_ids = [int(sec_row["security_id"])]
+
+    effective_end = datetime.now(UTC).date()
+    effective_start = effective_end - timedelta(days=days)
+
+    where_clauses = [
+        "t.transaction_date >= :start_date",
+        "t.transaction_date <= :end_date",
+        "(t.security_id IN :scope_ids OR UPPER(COALESCE(t.issuer_trading_symbol, '')) = :ticker)",
+    ]
+    params: dict[str, object] = {
+        "start_date": effective_start.isoformat(),
+        "end_date": effective_end.isoformat(),
+        "scope_ids": scope_ids,
+        "ticker": ticker.upper(),
+        "limit_n": limit_n,
+    }
+    normalized_signal_type: str | None = None
+    if signal_type:
+        normalized_signal_type = signal_type.strip().upper()
+        if normalized_signal_type not in {"OPEN_MARKET_BUY", "OPEN_MARKET_SELL", "DERIVATIVE", "OTHER"}:
+            raise HTTPException(status_code=400, detail=f"Unsupported signal_type '{signal_type}'.")
+        where_clauses.append("UPPER(COALESCE(t.signal_type, '')) = :signal_type")
+        params["signal_type"] = normalized_signal_type
+
+    rows = db.execute(
+        text(
+            f"""
+            SELECT
+              t.insider_tx_id,
+              t.transaction_date,
+              t.signal_type,
+              t.issuer_name,
+              t.issuer_trading_symbol,
+              t.reporting_owner_name,
+              t.reporting_owner_title,
+              t.role_group,
+              t.transaction_code,
+              t.acquisition_disposition,
+              t.ownership_nature,
+              t.is_derivative,
+              t.transaction_shares,
+              t.transaction_price,
+              t.transaction_value_usd,
+              t.shares_owned_following,
+              f.form_type,
+              f.filed_at,
+              f.accession_no,
+              f.sec_url
+            FROM insider_transactions t
+            JOIN filings f ON f.filing_id = t.filing_id
+            WHERE {' AND '.join(where_clauses)}
+            ORDER BY t.transaction_date DESC, t.insider_tx_id DESC
+            LIMIT :limit_n
+            """
+        ).bindparams(bindparam("scope_ids", expanding=True)),
+        params,
+    ).mappings().all()
+
+    return {
+        "security_id": int(sec_row["security_id"]),
+        "ticker": str(sec_row["ticker"]),
+        "filters": {
+            "signal_type": normalized_signal_type,
+            "start_date": effective_start.isoformat(),
+            "end_date": effective_end.isoformat(),
+        },
+        "rows": [dict(x) for x in rows],
+    }
+
+
+@router.get("/screeners/insider-clusters")
+def insider_cluster_buys(
+    days: int = Query(30, ge=1, le=3650),
+    limit_n: int = Query(50, ge=1, le=500),
+    min_distinct_insiders: int = Query(2, ge=2, le=50),
+    min_total_value_usd: float = Query(0.0, ge=0.0),
+    signal_type: str = Query("OPEN_MARKET_BUY", pattern="^(OPEN_MARKET_BUY|OPEN_MARKET_SELL)$"),
+    db: Session = Depends(get_db),
+) -> dict:
+    if not _table_exists(db=db, table_name="insider_transactions"):
+        effective_end = datetime.now(UTC).date()
+        effective_start = effective_end - timedelta(days=days)
+        return {
+            "start_date": effective_start.isoformat(),
+            "end_date": effective_end.isoformat(),
+            "filters": {
+                "signal_type": signal_type.upper(),
+                "min_distinct_insiders": int(min_distinct_insiders),
+                "min_total_value_usd": float(min_total_value_usd),
+            },
+            "rows": [],
+            "warning": "insider_transactions table not initialized; run init-db or update-form4-feed first.",
+        }
+
+    effective_end = datetime.now(UTC).date()
+    effective_start = effective_end - timedelta(days=days)
+    rows = db.execute(
+        text(
+            """
+            WITH base AS (
+              SELECT
+                t.security_id,
+                COALESCE(t.issuer_trading_symbol, '') AS issuer_trading_symbol,
+                COALESCE(t.issuer_name, '') AS issuer_name,
+                COALESCE(t.reporting_owner_name, '') AS reporting_owner_name,
+                COALESCE(t.reporting_owner_cik, '') AS reporting_owner_cik,
+                COALESCE(t.transaction_value_usd, 0.0) AS transaction_value_usd,
+                COALESCE(t.transaction_shares, 0.0) AS transaction_shares
+              FROM insider_transactions t
+              WHERE t.transaction_date >= :start_date
+                AND t.transaction_date <= :end_date
+                AND UPPER(COALESCE(t.signal_type, '')) = :signal_type
+            )
+            SELECT
+              b.security_id,
+              COALESCE(
+                (
+                  SELECT si.id_value
+                  FROM security_identifiers si
+                  WHERE si.security_id = b.security_id
+                    AND si.id_type = 'TICKER'
+                    AND (si.valid_to IS NULL OR date('now') < date(si.valid_to))
+                  ORDER BY si.valid_from DESC
+                  LIMIT 1
+                ),
+                NULLIF(b.issuer_trading_symbol, '')
+              ) AS ticker,
+              NULLIF(b.issuer_name, '') AS issuer_name,
+              COUNT(*) AS tx_count,
+              COUNT(
+                DISTINCT CASE
+                  WHEN b.reporting_owner_cik <> '' THEN b.reporting_owner_cik
+                  ELSE b.reporting_owner_name
+                END
+              ) AS distinct_insiders,
+              SUM(b.transaction_value_usd) AS total_value_usd,
+              SUM(b.transaction_shares) AS total_shares
+            FROM base b
+            GROUP BY b.security_id, b.issuer_trading_symbol, b.issuer_name
+            HAVING COUNT(
+                DISTINCT CASE
+                  WHEN b.reporting_owner_cik <> '' THEN b.reporting_owner_cik
+                  ELSE b.reporting_owner_name
+                END
+              ) >= :min_distinct_insiders
+               AND SUM(b.transaction_value_usd) >= :min_total_value_usd
+            ORDER BY distinct_insiders DESC, total_value_usd DESC, tx_count DESC
+            LIMIT :limit_n
+            """
+        ),
+        {
+            "start_date": effective_start.isoformat(),
+            "end_date": effective_end.isoformat(),
+            "signal_type": signal_type.upper(),
+            "min_distinct_insiders": min_distinct_insiders,
+            "min_total_value_usd": float(min_total_value_usd),
+            "limit_n": limit_n,
+        },
+    ).mappings().all()
+    return {
+        "start_date": effective_start.isoformat(),
+        "end_date": effective_end.isoformat(),
+        "filters": {
+            "signal_type": signal_type.upper(),
+            "min_distinct_insiders": int(min_distinct_insiders),
+            "min_total_value_usd": float(min_total_value_usd),
+        },
+        "rows": [dict(x) for x in rows],
     }
 
 

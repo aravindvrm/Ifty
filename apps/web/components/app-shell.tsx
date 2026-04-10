@@ -20,26 +20,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const selectedKey = searchParams.get("key");
   const hasEntitySelection = Boolean(selectedType && selectedKey);
   const showInitialOverlay = pathname === "/explore" && !hasEntitySelection;
+  const insiderActivityActive = pathname.startsWith("/activity/insiders");
+  const boActivityActive = pathname.startsWith("/activity/13dg") || pathname === "/feed";
 
   return (
     <div className="app-shell-root h-screen overflow-hidden text-slate-100">
       {showInitialOverlay ? <InitialLoadOverlay /> : null}
 
-      <Link
-        href="/explore"
-        className="brand-link fixed left-4 top-4 z-30 inline-flex shrink-0 items-center px-1 py-1.5 md:left-6 md:top-5"
-        style={{ color: "#f8fafc", WebkitTextFillColor: "#f8fafc" }}
-      >
-        <span
-          className={`${iftyWordmarkFont.className} brand-wordmark text-2xl tracking-wide text-slate-100`}
-          style={{ color: "#f8fafc", WebkitTextFillColor: "#f8fafc" }}
-        >
-          Ifty
-        </span>
-      </Link>
+      <header className="fixed inset-x-0 top-0 z-30">
+        <div className="mx-auto flex h-[4.25rem] w-full max-w-[1600px] items-center justify-between px-4 md:px-6 lg:px-8">
+          <Link
+            href="/explore"
+            className="brand-link inline-flex shrink-0 items-center px-1 py-1.5"
+            style={{ color: "#f8fafc", WebkitTextFillColor: "#f8fafc" }}
+          >
+            <span
+              className={`${iftyWordmarkFont.className} brand-wordmark text-2xl tracking-wide text-slate-100`}
+              style={{ color: "#f8fafc", WebkitTextFillColor: "#f8fafc" }}
+            >
+              Ifty
+            </span>
+          </Link>
+
+          <nav className="ml-auto flex items-center gap-4 text-sm font-medium text-slate-400 md:gap-6">
+            <Link
+              href="/activity/insiders"
+              className={insiderActivityActive ? "text-white" : "transition hover:text-slate-100"}
+            >
+              Insider Activity
+            </Link>
+            <Link
+              href="/activity/13dg"
+              className={boActivityActive ? "text-white" : "transition hover:text-slate-100"}
+            >
+              13D/G Activity
+            </Link>
+          </nav>
+        </div>
+      </header>
 
       <div className="app-main-scroll relative z-10 h-full overflow-y-auto pb-12">
-        <main className="mx-auto w-full max-w-[1600px] px-4 pb-5 pt-[4.5rem] md:px-6 md:pb-6 md:pt-[5.5rem] lg:px-8">{children}</main>
+        <main className="mx-auto w-full max-w-[1600px] px-4 pb-5 pt-[5.25rem] md:px-6 md:pb-6 md:pt-[5.5rem] lg:px-8">{children}</main>
       </div>
 
       <footer className="fixed inset-x-0 bottom-0 z-20 bg-black/20">

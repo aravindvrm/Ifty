@@ -737,6 +737,10 @@ button,
   border-radius: 9999px !important;
 }
 
+.activity-controls-rounded .activity-pill {
+  border-radius: 9999px !important;
+}
+
 @media (max-width: 900px) {
   .grid-2 {
     grid-template-columns: 1fr;

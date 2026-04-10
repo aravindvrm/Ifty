@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 
-POSTGRES_BOOTSTRAP_VERSION = "2026-03-03.1"
+POSTGRES_BOOTSTRAP_VERSION = "2026-04-08.1"
 
 
 def _ensure_sqlite_parent_exists(db_url: str) -> None:
@@ -304,6 +304,80 @@ def ensure_schema_and_seed(engine: Engine) -> None:
             conn.execute(
                 text(
                     """
+                    CREATE TABLE IF NOT EXISTS insider_transactions (
+                      insider_tx_id BIGINT PRIMARY KEY,
+                      filing_id BIGINT NOT NULL REFERENCES filings (filing_id),
+                      security_id BIGINT REFERENCES securities (security_id),
+                      issuer_cik TEXT,
+                      issuer_name TEXT,
+                      issuer_trading_symbol TEXT,
+                      reporting_owner_cik TEXT,
+                      reporting_owner_name TEXT,
+                      reporting_owner_title TEXT,
+                      role_group TEXT,
+                      is_director INTEGER NOT NULL DEFAULT 0,
+                      is_officer INTEGER NOT NULL DEFAULT 0,
+                      is_ten_percent_owner INTEGER NOT NULL DEFAULT 0,
+                      is_other INTEGER NOT NULL DEFAULT 0,
+                      transaction_date TEXT NOT NULL,
+                      transaction_code TEXT,
+                      acquisition_disposition TEXT,
+                      ownership_nature TEXT,
+                      is_derivative INTEGER NOT NULL DEFAULT 0,
+                      transaction_shares DOUBLE PRECISION,
+                      transaction_price DOUBLE PRECISION,
+                      shares_owned_following DOUBLE PRECISION,
+                      transaction_value_usd DOUBLE PRECISION,
+                      signal_type TEXT,
+                      row_hash TEXT NOT NULL,
+                      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS ux_insider_tx_dedup
+                    ON insider_transactions (filing_id, row_hash)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_insider_tx_date
+                    ON insider_transactions (transaction_date)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_insider_tx_symbol_date
+                    ON insider_transactions (issuer_trading_symbol, transaction_date)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_insider_tx_security_date
+                    ON insider_transactions (security_id, transaction_date)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_insider_tx_signal_date
+                    ON insider_transactions (signal_type, transaction_date)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
                     INSERT INTO api_budgets (provider, max_per_minute, max_per_day, burst_per_second, notes, updated_at)
                     VALUES
                       ('SEC', 480, NULL, 8, 'Keep below SEC 10 req/s policy; always send compliant User-Agent.', CURRENT_TIMESTAMP),
@@ -330,6 +404,7 @@ def ensure_schema_and_seed(engine: Engine) -> None:
                 ("filings", "filing_id"),
                 ("holdings_13f", "holding_13f_id"),
                 ("beneficial_ownership_events", "bo_event_id"),
+                ("insider_transactions", "insider_tx_id"),
                 ("api_request_log", "request_id"),
             ]
             for table, col in id_cols:

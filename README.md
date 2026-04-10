@@ -162,6 +162,30 @@ python -m app.cli update-13dg-feed \
   --discovery-days 21
 ```
 
+### Daily Form 4 insider feed update
+
+```bash
+# 0 = process all discovered filings for scanned days
+python -m app.cli update-form4-feed --days 14 --max-filings 0
+```
+
+### Cron Scheduling (recommended)
+
+Use the provided scripts:
+- `scripts/cron_form4_feed.sh`
+- `scripts/cron_13dg_feed.sh`
+
+Example crontab (Form 4 every 30m, 13D/G daily at 02:10 local time):
+
+```cron
+*/30 * * * * /Users/avrm/Documents/Repos/Codex/13F-tracker/scripts/cron_form4_feed.sh
+10 2 * * * /Users/avrm/Documents/Repos/Codex/13F-tracker/scripts/cron_13dg_feed.sh
+```
+
+Optional runtime overrides via env vars:
+- Form 4 script: `FORM4_DAYS`, `FORM4_MAX_FILINGS`
+- 13D/G script: `DG_TOP_N`, `DG_PER_MANAGER_LIMIT`, `DG_RESOLVE_LIMIT`, `DG_DISCOVERY_MODE`, `DG_DISCOVERY_DAYS`
+
 ### Validation
 
 ```bash
@@ -191,6 +215,7 @@ python -m app.cli validate-live --ticker AAPL --external-provider auto
 - `POST /jobs/refresh-universe`
 - `POST /jobs/enrich-cusips`
 - `POST /jobs/update-13dg-feed`
+- `POST /jobs/update-form4-feed`
 
 ### Product APIs
 - `GET /home/overview`
