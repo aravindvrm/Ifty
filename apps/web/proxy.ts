@@ -62,7 +62,7 @@ function isPublicPath(pathname: string): boolean {
   return STATIC_FILE_EXTENSIONS.some((ext) => pathname.endsWith(ext));
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (isPublicPath(pathname)) {
     return NextResponse.next();
