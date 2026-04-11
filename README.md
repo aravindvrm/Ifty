@@ -211,10 +211,11 @@ Key knobs:
 - `DEMO_RUN_LOCAL_INCREMENTAL=1`: run local `update-incremental` before publish.
 - `DEMO_RUN_LOCAL_UPDATES=1`: run local `update-13dg-feed` and `update-form4-feed` before publish (default on; set `DEMO_RUN_LOCAL_UPDATES=0` to skip).
 - `DEMO_TOP_N`: managers to include in remote subset (default `75`).
+- `DEMO_LOCAL_DB_STATEMENT_TIMEOUT_MS`: timeout override (ms) for local CLI steps during publish; default `0` (disabled) to avoid refresh timeouts.
 - `DEMO_QUARTERS`: mapped 13F quarters to include (default `2`).
 - `DEMO_COMPACT_HOLDINGS=1`: pre-aggregate 13F holdings to manager+security+quarter before publish (default on).
 - `DEMO_BO_KEEP_DAYS`, `DEMO_INSIDER_KEEP_DAYS`: recency windows for 13D/G and Form 4.
-- `DEMO_INCREMENTAL_*`: tuning for local incremental pre-refresh (`TOP_N`, `INGEST_LIMIT`, `RESOLVE_QUARTERS`, etc.).
+- `DEMO_INCREMENTAL_*`: tuning for local incremental pre-refresh (`TOP_N`, `INGEST_LIMIT`, `RESOLVE_QUARTERS`, etc.). If `DEMO_INCREMENTAL_TOP_N` is unset, it now defaults to `DEMO_TOP_N`.
 
 ### Cron Scheduling (recommended)
 
