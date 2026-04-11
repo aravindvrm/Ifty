@@ -14,6 +14,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [magicSubmitting, setMagicSubmitting] = useState(false);
+  const [oauthSubmitting, setOauthSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -88,6 +89,26 @@ export default function LoginPage() {
     }
   }
 
+  async function onGoogleSignIn() {
+    if (!supabase) return;
+    setOauthSubmitting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo },
+      });
+      if (oauthError) throw oauthError;
+    } catch (oauthSignInError) {
+      setError(String(oauthSignInError));
+      setOauthSubmitting(false);
+    }
+  }
+
+  const isBusy = submitting || magicSubmitting || oauthSubmitting;
+
   if (!supabase) {
     return (
       <section className="mx-auto w-full max-w-md rounded-xl border border-line/80 bg-card/60 p-6">
@@ -103,6 +124,21 @@ export default function LoginPage() {
     <section className="mx-auto w-full max-w-md rounded-xl border border-line/80 bg-card/70 p-6 shadow-panel">
       <h1 className="text-xl font-semibold text-slate-100">Sign in</h1>
       <p className="mt-2 text-sm text-slate-400">Sign in with email and password.</p>
+      <button
+        type="button"
+        onClick={onGoogleSignIn}
+        className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-line/80 bg-card/70 px-3 py-2 text-sm text-slate-100 transition hover:border-accentBlue/70 hover:bg-accentBlue/10 disabled:opacity-60"
+        disabled={isBusy}
+      >
+        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] font-semibold text-black">G</span>
+        <span>{oauthSubmitting ? "Redirecting..." : "Continue with Google"}</span>
+      </button>
+
+      <div className="relative my-4 flex items-center">
+        <div className="h-px w-full bg-line/70" />
+        <span className="absolute left-1/2 -translate-x-1/2 bg-card/70 px-2 text-[11px] uppercase tracking-wide text-slate-500">or</span>
+      </div>
+
       {authError === "auth_callback_failed" ? (
         <p className="mt-2 text-sm text-rose-300">Sign-in callback failed. Please request a new magic link.</p>
       ) : authError === "auth_env_missing" ? (
@@ -125,7 +161,7 @@ export default function LoginPage() {
           onChange={(event) => setEmail(event.target.value)}
           placeholder="you@example.com"
           className="w-full rounded-xl border border-line/80 bg-card/70 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70"
-          disabled={submitting || magicSubmitting}
+          disabled={isBusy}
         />
         <label className="block text-xs uppercase tracking-wide text-slate-500" htmlFor="password">
           Password
@@ -138,12 +174,12 @@ export default function LoginPage() {
           onChange={(event) => setPassword(event.target.value)}
           placeholder="Your password"
           className="w-full rounded-xl border border-line/80 bg-card/70 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-accentBlue/70"
-          disabled={submitting || magicSubmitting}
+          disabled={isBusy}
         />
         <button
           type="submit"
           className="w-full rounded-xl border border-accentBlue/60 bg-accentBlue/15 px-3 py-2 text-sm text-slate-100 transition hover:bg-accentBlue/25 disabled:opacity-60"
-          disabled={submitting || magicSubmitting}
+          disabled={isBusy}
         >
           {submitting ? "Signing in..." : "Sign in"}
         </button>
@@ -153,7 +189,7 @@ export default function LoginPage() {
         type="button"
         onClick={onMagicLink}
         className="mt-3 w-full rounded-xl border border-line/70 bg-black/25 px-3 py-2 text-sm text-slate-300 transition hover:border-line hover:text-white disabled:opacity-60"
-        disabled={submitting || magicSubmitting}
+        disabled={isBusy}
       >
         {magicSubmitting ? "Sending link..." : "Use magic link instead"}
       </button>

@@ -80,6 +80,13 @@ For Supabase auth in the web app:
 - Set:
   - `NEXT_PUBLIC_SUPABASE_URL`
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- Optional (Google OAuth):
+  - In Supabase Auth > Providers, enable `Google` and set your Google client id/secret.
+  - In Google Cloud OAuth, set Authorized redirect URI to:
+    - `https://<your-supabase-project-ref>.supabase.co/auth/v1/callback`
+  - In Supabase Auth URL settings, include app callback URLs:
+    - `http://localhost:3000/auth/callback`
+    - `https://<your-vercel-domain>/auth/callback`
 
 ### 2) Start Postgres (recommended)
 
@@ -117,7 +124,7 @@ npm run dev
 
 Open:
 - `http://localhost:3000`
-- `http://localhost:3000/login` (email magic-link sign-in)
+- `http://localhost:3000/login` (email/password, magic-link, or Google sign-in)
 
 ## Pipeline Commands
 
