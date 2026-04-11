@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { HoldingsHeatmap, NetAccumulationBarChart } from "@/components/charts";
 import { LottieLoader } from "@/components/lottie-loader";
+import { SaveToWatchlistControl } from "@/components/save-to-watchlist-control";
 import { SecurityActivePositionsTable } from "@/components/security-active-positions-table";
 import { TickerIcon } from "@/components/ticker-icon";
 import {
@@ -323,10 +324,18 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
         <section className="rounded-none p-6 shadow-panel">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h1 className="inline-flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-100">
+              <h1 className="inline-flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight text-slate-100">
                 <TickerIcon ticker={security.ticker} label={security.security_name} size={22} />
                 <span>{security.ticker}</span>
                 {security.security_name ? <span className="text-slate-100">- {security.security_name}</span> : null}
+                <SaveToWatchlistControl
+                  itemType="SECURITY"
+                  itemKey={security.ticker}
+                  itemLabel={security.ticker}
+                  itemSubtitle={security.security_name ?? null}
+                  compact
+                  highlight
+                />
               </h1>
               <p className="mt-2 text-sm text-slate-400">
                 Last report date: {security.latest_quarter ?? "-"} • MIC {security.mic || "N/A"} • Security ID{" "}
@@ -563,8 +572,16 @@ export function ExploreEntityView({ selection }: { selection: ExploreSelection |
   return (
     <div className="space-y-6">
       <section className="rounded-none p-6 shadow-panel">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-100">
+        <h1 className="inline-flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight text-slate-100">
           Institution: {institution.manager.manager_name}
+          <SaveToWatchlistControl
+            itemType="INSTITUTION"
+            itemKey={String(institution.manager.manager_id)}
+            itemLabel={institution.manager.manager_name}
+            itemSubtitle={institution.manager.cik}
+            compact
+            highlight
+          />
         </h1>
         <p className="mt-2 text-sm text-slate-400">
           CIK {institution.manager.cik} • Latest quarter {institution.latest_quarter ?? "-"}

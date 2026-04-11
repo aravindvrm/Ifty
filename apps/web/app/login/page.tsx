@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { getDefaultPostLoginPath, normalizeNextPath } from "@/lib/auth";
+import { buildAuthCallbackUrl } from "@/lib/auth-redirect";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
@@ -73,7 +74,7 @@ export default function LoginPage() {
     setError(null);
     setNotice(null);
     try {
-      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+      const redirectTo = buildAuthCallbackUrl(nextPath);
       const { error: magicError } = await supabase.auth.signInWithOtp({
         email: normalizedEmail,
         options: {
@@ -95,7 +96,7 @@ export default function LoginPage() {
     setError(null);
     setNotice(null);
     try {
-      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+      const redirectTo = buildAuthCallbackUrl(nextPath);
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo },

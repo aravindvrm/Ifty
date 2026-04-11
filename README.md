@@ -80,6 +80,7 @@ For Supabase auth in the web app:
 - Set:
   - `NEXT_PUBLIC_SUPABASE_URL`
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  - `NEXT_PUBLIC_AUTH_REDIRECT_BASE_URL` (set to `http://localhost:3000` for local dev to force OAuth callback origin)
 - Optional (Google OAuth):
   - In Supabase Auth > Providers, enable `Google` and set your Google client id/secret.
   - In Google Cloud OAuth, set Authorized redirect URI to:
@@ -87,6 +88,14 @@ For Supabase auth in the web app:
   - In Supabase Auth URL settings, include app callback URLs:
     - `http://localhost:3000/auth/callback`
     - `https://<your-vercel-domain>/auth/callback`
+
+Backend target switching for local UI testing:
+- Local backend (recommended for development):
+  - `./scripts/switch_web_api_target.sh local`
+- Render backend (for deployed API testing):
+  - `./scripts/switch_web_api_target.sh render https://ifty.onrender.com`
+- Custom backend URL:
+  - `./scripts/switch_web_api_target.sh custom https://your-api-host`
 
 ### 2) Start Postgres (recommended)
 
@@ -222,7 +231,7 @@ Key knobs:
 - `DEMO_QUARTERS`: mapped 13F quarters to include (default `2`).
 - `DEMO_COMPACT_HOLDINGS=1`: pre-aggregate 13F holdings to manager+security+quarter before publish (default on).
 - `DEMO_BO_KEEP_DAYS`, `DEMO_INSIDER_KEEP_DAYS`: recency windows for 13D/G and Form 4.
-- `DEMO_INCREMENTAL_*`: tuning for local incremental pre-refresh (`TOP_N`, `INGEST_LIMIT`, `RESOLVE_QUARTERS`, etc.). If `DEMO_INCREMENTAL_TOP_N` is unset, it now defaults to `DEMO_TOP_N`.
+- `DEMO_INCREMENTAL_*`: tuning for local incremental pre-refresh (`TOP_N`, `INGEST_LIMIT`, `RESOLVE_QUARTERS`, etc.). `DEMO_INCREMENTAL_TOP_N` defaults to `300` so local universe coverage stays broad unless you explicitly lower it.
 
 ### Cron Scheduling (recommended)
 

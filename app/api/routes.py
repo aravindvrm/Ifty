@@ -3,8 +3,10 @@ import json
 from math import ceil, floor
 import re
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
@@ -28,6 +30,31 @@ router = APIRouter()
 _FEED_TICKER_RE = re.compile(r"^[A-Z]{1,6}(?:[./-][A-Z0-9]{1,4})?$")
 _FEED_ITEM_TOKEN_RE = re.compile(r"^ITEM\d+TO\d+$")
 _BO_THRESHOLDS = (5.0, 10.0, 20.0, 50.0)
+_WATCHLIST_TYPE_VALUES = {"SECURITY", "INSTITUTION"}
+_WATCHLIST_ITEM_TYPE_VALUES = {"SECURITY", "INSTITUTION"}
+
+
+class WatchlistCreateRequest(BaseModel):
+    owner_user_id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=120)
+    watchlist_type: str = Field(default="SECURITY")
+    description: str | None = Field(default=None, max_length=400)
+
+
+class WatchlistUpdateRequest(BaseModel):
+    owner_user_id: str = Field(min_length=1, max_length=128)
+    name: str | None = Field(default=None, max_length=120)
+    watchlist_type: str | None = Field(default=None)
+    description: str | None = Field(default=None, max_length=400)
+
+
+class WatchlistItemUpsertRequest(BaseModel):
+    owner_user_id: str = Field(min_length=1, max_length=128)
+    item_type: str = Field(min_length=1, max_length=32)
+    item_key: str = Field(min_length=1, max_length=120)
+    item_label: str | None = Field(default=None, max_length=240)
+    item_subtitle: str | None = Field(default=None, max_length=320)
+    metadata: dict[str, object] | None = None
 
 
 def _bo_intent_class(form_type: object) -> str | None:
@@ -379,6 +406,206 @@ def _resolve_security_scope_ids(db: Session, ticker: str) -> list[int]:
     return sorted(scope_ids)
 
 
+def _watchlist_new_id(prefix: str) -> str:
+    return f"{prefix}_{uuid4().hex}"
+
+
+def _normalize_owner_user_id(raw: object) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="owner_user_id is required")
+    if len(value) > 128:
+        raise HTTPException(status_code=400, detail="owner_user_id is too long")
+    return value
+
+
+def _normalize_watchlist_type(raw: object | None, *, item_type: bool = False) -> str:
+    value = str(raw or "").strip().upper() or ("SECURITY" if not item_type else "")
+    allowed = set(_WATCHLIST_ITEM_TYPE_VALUES if item_type else _WATCHLIST_TYPE_VALUES)
+    if value not in allowed:
+        allowed_list = ", ".join(sorted(allowed))
+        raise HTTPException(status_code=400, detail=f"Invalid watchlist type. Allowed: {allowed_list}")
+    return value
+
+
+def _normalize_item_key(item_type: str, raw: object) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="item_key is required")
+    if item_type == "SECURITY":
+        value = value.upper()
+    if len(value) > 120:
+        raise HTTPException(status_code=400, detail="item_key is too long")
+    return value
+
+
+def _sanitize_optional_text(raw: object | None, max_len: int) -> str | None:
+    value = str(raw or "").strip()
+    if not value:
+        return None
+    if len(value) > max_len:
+        return value[:max_len]
+    return value
+
+
+def _ensure_watchlist_schema(db: Session) -> None:
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS watchlists (
+              watchlist_id TEXT PRIMARY KEY,
+              owner_user_id TEXT NOT NULL,
+              name TEXT NOT NULL,
+              watchlist_type TEXT NOT NULL,
+              description TEXT,
+              created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS watchlist_items (
+              watchlist_item_id TEXT PRIMARY KEY,
+              watchlist_id TEXT NOT NULL REFERENCES watchlists (watchlist_id) ON DELETE CASCADE,
+              item_type TEXT NOT NULL,
+              item_key TEXT NOT NULL,
+              item_label TEXT,
+              item_subtitle TEXT,
+              metadata_json TEXT,
+              added_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_watchlists_owner ON watchlists (owner_user_id, created_at DESC)"))
+    db.execute(
+        text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_watchlists_owner_name
+            ON watchlists (owner_user_id, LOWER(name))
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_watchlist_items_unique
+            ON watchlist_items (watchlist_id, item_type, item_key)
+            """
+        )
+    )
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_watchlist_items_watchlist ON watchlist_items (watchlist_id, added_at DESC)"))
+
+
+def _watchlists_for_owner(db: Session, owner_user_id: str) -> dict[str, object]:
+    rows = db.execute(
+        text(
+            """
+            SELECT
+              watchlist_id,
+              owner_user_id,
+              name,
+              watchlist_type,
+              description,
+              created_at,
+              updated_at
+            FROM watchlists
+            WHERE owner_user_id = :owner_user_id
+              AND UPPER(watchlist_type) IN ('SECURITY', 'INSTITUTION')
+            ORDER BY created_at DESC, name ASC
+            """
+        ),
+        {"owner_user_id": owner_user_id},
+    ).mappings().all()
+    if not rows:
+        return {"owner_user_id": owner_user_id, "rows": []}
+
+    watchlist_ids = [str(row["watchlist_id"]) for row in rows]
+    items_stmt = text(
+        """
+        SELECT
+          watchlist_item_id,
+          watchlist_id,
+          item_type,
+          item_key,
+          item_label,
+          item_subtitle,
+          metadata_json,
+          added_at,
+          updated_at
+        FROM watchlist_items
+        WHERE watchlist_id IN :watchlist_ids
+        ORDER BY added_at DESC, watchlist_item_id DESC
+        """
+    ).bindparams(bindparam("watchlist_ids", expanding=True))
+    item_rows = db.execute(items_stmt, {"watchlist_ids": watchlist_ids}).mappings().all()
+    items_by_watchlist: dict[str, list[dict[str, object]]] = {}
+    for item in item_rows:
+        watchlist_id = str(item["watchlist_id"])
+        metadata_json = item.get("metadata_json")
+        metadata: dict[str, object] | None = None
+        if metadata_json:
+            try:
+                parsed = json.loads(str(metadata_json))
+                if isinstance(parsed, dict):
+                    metadata = parsed
+            except Exception:
+                metadata = None
+        items_by_watchlist.setdefault(watchlist_id, []).append(
+            {
+                "watchlist_item_id": str(item["watchlist_item_id"]),
+                "watchlist_id": watchlist_id,
+                "item_type": str(item["item_type"]).upper(),
+                "item_key": str(item["item_key"]),
+                "item_label": item.get("item_label"),
+                "item_subtitle": item.get("item_subtitle"),
+                "metadata": metadata,
+                "added_at": str(item["added_at"]) if item.get("added_at") is not None else None,
+                "updated_at": str(item["updated_at"]) if item.get("updated_at") is not None else None,
+            }
+        )
+
+    out_rows: list[dict[str, object]] = []
+    for row in rows:
+        watchlist_id = str(row["watchlist_id"])
+        items = items_by_watchlist.get(watchlist_id, [])
+        out_rows.append(
+            {
+                "watchlist_id": watchlist_id,
+                "owner_user_id": str(row["owner_user_id"]),
+                "name": str(row["name"]),
+                "watchlist_type": str(row["watchlist_type"]).upper(),
+                "description": row.get("description"),
+                "created_at": str(row["created_at"]) if row.get("created_at") is not None else None,
+                "updated_at": str(row["updated_at"]) if row.get("updated_at") is not None else None,
+                "item_count": len(items),
+                "items": items,
+            }
+        )
+    return {"owner_user_id": owner_user_id, "rows": out_rows}
+
+
+def _assert_watchlist_owner(db: Session, watchlist_id: str, owner_user_id: str) -> dict[str, object]:
+    row = db.execute(
+        text(
+            """
+            SELECT watchlist_id, owner_user_id, watchlist_type
+            FROM watchlists
+            WHERE watchlist_id = :watchlist_id AND owner_user_id = :owner_user_id
+            LIMIT 1
+            """
+        ),
+        {"watchlist_id": watchlist_id, "owner_user_id": owner_user_id},
+    ).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    return dict(row)
+
+
 def _value_to_usd_multiplier(db: Session) -> float:
     """
     Detect whether holdings_13f.value_usd_thousands is stored in USD or in USD-thousands.
@@ -549,6 +776,302 @@ def _manager_prior_comparison_filing(
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/watchlists")
+def get_watchlists(
+    owner_user_id: str = Query(..., min_length=1, max_length=128),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    _ensure_watchlist_schema(db)
+    user_id = _normalize_owner_user_id(owner_user_id)
+    return _watchlists_for_owner(db, user_id)
+
+
+@router.post("/watchlists")
+def create_watchlist(
+    payload: WatchlistCreateRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    _ensure_watchlist_schema(db)
+    owner_user_id = _normalize_owner_user_id(payload.owner_user_id)
+    name = str(payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    watchlist_type = _normalize_watchlist_type(payload.watchlist_type)
+    description = _sanitize_optional_text(payload.description, 400)
+
+    existing = db.execute(
+        text(
+            """
+            SELECT watchlist_id
+            FROM watchlists
+            WHERE owner_user_id = :owner_user_id
+              AND LOWER(name) = LOWER(:name)
+            LIMIT 1
+            """
+        ),
+        {"owner_user_id": owner_user_id, "name": name},
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="A watchlist with this name already exists")
+
+    watchlist_id = _watchlist_new_id("wl")
+    db.execute(
+        text(
+            """
+            INSERT INTO watchlists (
+              watchlist_id,
+              owner_user_id,
+              name,
+              watchlist_type,
+              description
+            ) VALUES (
+              :watchlist_id,
+              :owner_user_id,
+              :name,
+              :watchlist_type,
+              :description
+            )
+            """
+        ),
+        {
+            "watchlist_id": watchlist_id,
+            "owner_user_id": owner_user_id,
+            "name": name,
+            "watchlist_type": watchlist_type,
+            "description": description,
+        },
+    )
+    db.commit()
+    return {
+        "watchlist_id": watchlist_id,
+        "owner_user_id": owner_user_id,
+        "name": name,
+        "watchlist_type": watchlist_type,
+        "description": description,
+    }
+
+
+@router.patch("/watchlists/{watchlist_id}")
+def update_watchlist(
+    watchlist_id: str,
+    payload: WatchlistUpdateRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    _ensure_watchlist_schema(db)
+    owner_user_id = _normalize_owner_user_id(payload.owner_user_id)
+    current = _assert_watchlist_owner(db, watchlist_id=watchlist_id, owner_user_id=owner_user_id)
+
+    name = str(payload.name or "").strip() if payload.name is not None else str(current["name"])
+    if not name:
+        raise HTTPException(status_code=400, detail="name cannot be empty")
+    watchlist_type = _normalize_watchlist_type(payload.watchlist_type) if payload.watchlist_type is not None else str(current["watchlist_type"]).upper()
+    description = (
+        _sanitize_optional_text(payload.description, 400)
+        if payload.description is not None
+        else None
+    )
+    if payload.description is None:
+        existing_description = db.execute(
+            text(
+                """
+                SELECT description
+                FROM watchlists
+                WHERE watchlist_id = :watchlist_id
+                LIMIT 1
+                """
+            ),
+            {"watchlist_id": watchlist_id},
+        ).scalar()
+        description = _sanitize_optional_text(existing_description, 400)
+
+    incompatible_count = db.execute(
+        text(
+            """
+            SELECT COUNT(*) AS cnt
+            FROM watchlist_items
+            WHERE watchlist_id = :watchlist_id
+              AND UPPER(item_type) <> :watchlist_type
+            """
+        ),
+        {"watchlist_id": watchlist_id, "watchlist_type": watchlist_type},
+    ).scalar()
+    if int(incompatible_count or 0) > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Watchlist has items incompatible with type {watchlist_type}",
+        )
+
+    duplicate = db.execute(
+        text(
+            """
+            SELECT watchlist_id
+            FROM watchlists
+            WHERE owner_user_id = :owner_user_id
+              AND LOWER(name) = LOWER(:name)
+              AND watchlist_id <> :watchlist_id
+            LIMIT 1
+            """
+        ),
+        {"owner_user_id": owner_user_id, "name": name, "watchlist_id": watchlist_id},
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="A watchlist with this name already exists")
+
+    db.execute(
+        text(
+            """
+            UPDATE watchlists
+            SET
+              name = :name,
+              watchlist_type = :watchlist_type,
+              description = :description,
+              updated_at = CURRENT_TIMESTAMP
+            WHERE watchlist_id = :watchlist_id
+              AND owner_user_id = :owner_user_id
+            """
+        ),
+        {
+            "watchlist_id": watchlist_id,
+            "owner_user_id": owner_user_id,
+            "name": name,
+            "watchlist_type": watchlist_type,
+            "description": description,
+        },
+    )
+    db.commit()
+    return {
+        "watchlist_id": watchlist_id,
+        "owner_user_id": owner_user_id,
+        "name": name,
+        "watchlist_type": watchlist_type,
+        "description": description,
+    }
+
+
+@router.delete("/watchlists/{watchlist_id}")
+def delete_watchlist(
+    watchlist_id: str,
+    owner_user_id: str = Query(..., min_length=1, max_length=128),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    _ensure_watchlist_schema(db)
+    user_id = _normalize_owner_user_id(owner_user_id)
+    _assert_watchlist_owner(db, watchlist_id=watchlist_id, owner_user_id=user_id)
+    db.execute(
+        text(
+            """
+            DELETE FROM watchlists
+            WHERE watchlist_id = :watchlist_id
+              AND owner_user_id = :owner_user_id
+            """
+        ),
+        {"watchlist_id": watchlist_id, "owner_user_id": user_id},
+    )
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/watchlists/{watchlist_id}/items")
+def upsert_watchlist_item(
+    watchlist_id: str,
+    payload: WatchlistItemUpsertRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    _ensure_watchlist_schema(db)
+    owner_user_id = _normalize_owner_user_id(payload.owner_user_id)
+    watchlist = _assert_watchlist_owner(db, watchlist_id=watchlist_id, owner_user_id=owner_user_id)
+    item_type = _normalize_watchlist_type(payload.item_type, item_type=True)
+    item_key = _normalize_item_key(item_type, payload.item_key)
+    item_label = _sanitize_optional_text(payload.item_label, 240)
+    item_subtitle = _sanitize_optional_text(payload.item_subtitle, 320)
+    metadata_json = json.dumps(payload.metadata, separators=(",", ":")) if payload.metadata else None
+
+    list_type = str(watchlist["watchlist_type"]).upper()
+    if list_type != item_type:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot add {item_type} item to {list_type} watchlist",
+        )
+
+    db.execute(
+        text(
+            """
+            INSERT INTO watchlist_items (
+              watchlist_item_id,
+              watchlist_id,
+              item_type,
+              item_key,
+              item_label,
+              item_subtitle,
+              metadata_json
+            ) VALUES (
+              :watchlist_item_id,
+              :watchlist_id,
+              :item_type,
+              :item_key,
+              :item_label,
+              :item_subtitle,
+              :metadata_json
+            )
+            ON CONFLICT (watchlist_id, item_type, item_key)
+            DO UPDATE SET
+              item_label = EXCLUDED.item_label,
+              item_subtitle = EXCLUDED.item_subtitle,
+              metadata_json = EXCLUDED.metadata_json,
+              updated_at = CURRENT_TIMESTAMP
+            """
+        ),
+        {
+            "watchlist_item_id": _watchlist_new_id("wli"),
+            "watchlist_id": watchlist_id,
+            "item_type": item_type,
+            "item_key": item_key,
+            "item_label": item_label,
+            "item_subtitle": item_subtitle,
+            "metadata_json": metadata_json,
+        },
+    )
+    db.commit()
+    return {
+        "ok": True,
+        "watchlist_id": watchlist_id,
+        "item_type": item_type,
+        "item_key": item_key,
+    }
+
+
+@router.delete("/watchlists/{watchlist_id}/items")
+def delete_watchlist_item(
+    watchlist_id: str,
+    owner_user_id: str = Query(..., min_length=1, max_length=128),
+    item_type: str = Query(..., min_length=1, max_length=32),
+    item_key: str = Query(..., min_length=1, max_length=120),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    _ensure_watchlist_schema(db)
+    user_id = _normalize_owner_user_id(owner_user_id)
+    _assert_watchlist_owner(db, watchlist_id=watchlist_id, owner_user_id=user_id)
+    normalized_item_type = _normalize_watchlist_type(item_type, item_type=True)
+    normalized_item_key = _normalize_item_key(normalized_item_type, item_key)
+    db.execute(
+        text(
+            """
+            DELETE FROM watchlist_items
+            WHERE watchlist_id = :watchlist_id
+              AND item_type = :item_type
+              AND item_key = :item_key
+            """
+        ),
+        {
+            "watchlist_id": watchlist_id,
+            "item_type": normalized_item_type,
+            "item_key": normalized_item_key,
+        },
+    )
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/ingest/sec/13f")

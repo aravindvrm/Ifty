@@ -287,6 +287,41 @@ ON insider_transactions (security_id, transaction_date);
 CREATE INDEX IF NOT EXISTS ix_insider_tx_signal_date
 ON insider_transactions (signal_type, transaction_date);
 
+-- User watchlists and saved entities.
+CREATE TABLE IF NOT EXISTS watchlists (
+  watchlist_id TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  watchlist_type TEXT NOT NULL, -- SECURITY, INSTITUTION
+  description TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS ix_watchlists_owner
+ON watchlists (owner_user_id, created_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_watchlists_owner_name
+ON watchlists (owner_user_id, LOWER(name));
+
+CREATE TABLE IF NOT EXISTS watchlist_items (
+  watchlist_item_id TEXT PRIMARY KEY,
+  watchlist_id TEXT NOT NULL REFERENCES watchlists (watchlist_id) ON DELETE CASCADE,
+  item_type TEXT NOT NULL,       -- SECURITY, INSTITUTION
+  item_key TEXT NOT NULL,        -- ticker for security, manager_id for institution
+  item_label TEXT,
+  item_subtitle TEXT,
+  metadata_json TEXT,
+  added_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_watchlist_items_unique
+ON watchlist_items (watchlist_id, item_type, item_key);
+
+CREATE INDEX IF NOT EXISTS ix_watchlist_items_watchlist
+ON watchlist_items (watchlist_id, added_at);
+
 -- Source-specific API budget and request tracking.
 CREATE TABLE IF NOT EXISTS api_budgets (
   provider TEXT PRIMARY KEY,      -- SEC, POLYGON, AV, YF

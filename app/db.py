@@ -79,6 +79,70 @@ def ensure_schema_and_seed(engine: Engine) -> None:
                     """
                 )
             )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS watchlists (
+                      watchlist_id TEXT PRIMARY KEY,
+                      owner_user_id TEXT NOT NULL,
+                      name TEXT NOT NULL,
+                      watchlist_type TEXT NOT NULL,
+                      description TEXT,
+                      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS watchlist_items (
+                      watchlist_item_id TEXT PRIMARY KEY,
+                      watchlist_id TEXT NOT NULL REFERENCES watchlists (watchlist_id) ON DELETE CASCADE,
+                      item_type TEXT NOT NULL,
+                      item_key TEXT NOT NULL,
+                      item_label TEXT,
+                      item_subtitle TEXT,
+                      metadata_json TEXT,
+                      added_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_watchlists_owner
+                    ON watchlists (owner_user_id, created_at DESC)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS ux_watchlists_owner_name
+                    ON watchlists (owner_user_id, LOWER(name))
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS ux_watchlist_items_unique
+                    ON watchlist_items (watchlist_id, item_type, item_key)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_watchlist_items_watchlist
+                    ON watchlist_items (watchlist_id, added_at DESC)
+                    """
+                )
+            )
             applied_version = conn.execute(
                 text(
                     """
