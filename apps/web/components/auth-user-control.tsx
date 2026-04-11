@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CircleUserRound, LogIn, LogOut, Settings, ShieldAlert } from "lucide-react";
+import { CircleUserRound, LogOut, Settings, ShieldAlert } from "lucide-react";
 
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -33,6 +34,34 @@ export function AuthUserControl() {
     };
   }, [supabase]);
 
+  if (!supabase) {
+    return (
+      <div className="inline-flex items-center gap-2 px-2 text-xs text-amber-300/90">
+        <ShieldAlert className="h-3.5 w-3.5" />
+        <span>Auth unavailable</span>
+      </div>
+    );
+  }
+
+  if (!email) {
+    return (
+      <div className="inline-flex items-center gap-2">
+        <Link
+          href="/login"
+          className="inline-flex h-9 items-center justify-center rounded-full border border-line/80 bg-card/60 px-3.5 text-xs font-medium text-slate-200 transition hover:border-accentBlue/70 hover:text-white"
+        >
+          Sign in
+        </Link>
+        <Link
+          href="/signup"
+          className="inline-flex h-9 items-center justify-center rounded-full border border-accentBlue/55 bg-accentBlue/15 px-3.5 text-xs font-medium text-slate-100 transition hover:bg-accentBlue/25"
+        >
+          Sign up
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="group relative">
       <button
@@ -54,55 +83,31 @@ export function AuthUserControl() {
         </div>
 
         <div className="space-y-1 px-1 py-2">
-          {!supabase ? (
-            <div className="inline-flex w-full items-center gap-2 px-2 py-1.5 text-xs text-amber-300/90">
-              <ShieldAlert className="h-3.5 w-3.5" />
-              <span>Supabase auth not configured</span>
-            </div>
-          ) : null}
+          <button
+            type="button"
+            role="menuitem"
+            className="inline-flex w-full cursor-default items-center gap-2 px-2 py-1.5 text-left text-xs text-slate-500"
+            disabled
+          >
+            <Settings className="h-3.5 w-3.5" />
+            <span>Profile settings (soon)</span>
+          </button>
 
-          {!email ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => router.push("/login")}
-              className="inline-flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs text-slate-300 transition hover:bg-white/[0.04] hover:text-white"
-            >
-              <LogIn className="h-3.5 w-3.5" />
-              <span>Sign in</span>
-            </button>
-          ) : null}
-
-          {email ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="inline-flex w-full cursor-default items-center gap-2 px-2 py-1.5 text-left text-xs text-slate-500"
-              disabled
-            >
-              <Settings className="h-3.5 w-3.5" />
-              <span>Profile settings (soon)</span>
-            </button>
-          ) : null}
-
-          {email ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={async () => {
-                if (!supabase) return;
-                setIsSigningOut(true);
-                await supabase.auth.signOut();
-                setIsSigningOut(false);
-                router.push("/login");
-              }}
-              className="inline-flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs text-slate-300 transition hover:bg-white/[0.04] hover:text-white disabled:opacity-50"
-              disabled={isSigningOut}
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              <span>{isSigningOut ? "Signing out..." : "Sign out"}</span>
-            </button>
-          ) : null}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={async () => {
+              setIsSigningOut(true);
+              await supabase.auth.signOut();
+              setIsSigningOut(false);
+              router.push("/explore");
+            }}
+            className="inline-flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs text-slate-300 transition hover:bg-white/[0.04] hover:text-white disabled:opacity-50"
+            disabled={isSigningOut}
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            <span>{isSigningOut ? "Signing out..." : "Sign out"}</span>
+          </button>
         </div>
       </div>
     </div>

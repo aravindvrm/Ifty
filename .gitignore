@@ -17,3 +17,4 @@ data/*.db
 # Web frontend
 apps/web/node_modules/
 apps/web/.next/
+.vercel

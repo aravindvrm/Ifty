@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATH_PREFIXES = ["/login", "/auth/callback", "/icon"];
+const PUBLIC_PATH_PREFIXES = ["/login", "/signup", "/auth/callback", "/icon", "/explore", "/activity", "/institution"];
+const PROTECTED_PATH_PREFIXES = ["/ops"];
 const STATIC_FILE_EXTENSIONS = [".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".css", ".js", ".map", ".txt", ".woff", ".woff2", ".webmanifest"];
 const DEFAULT_POST_LOGIN_PATH = "/explore";
 const AUTH_MIDDLEWARE_ENABLED = String(process.env.AUTH_MIDDLEWARE_ENABLED ?? "true").trim().toLowerCase() !== "false";
@@ -57,14 +58,23 @@ function normalizeNextPathForRedirect(input: string | null | undefined): string 
 }
 
 function isPublicPath(pathname: string): boolean {
+  if (pathname === "/") return true;
   if (pathname.startsWith("/_next/")) return true;
   if (PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return true;
   return STATIC_FILE_EXTENSIONS.some((ext) => pathname.endsWith(ext));
 }
 
+function isProtectedPath(pathname: string): boolean {
+  return PROTECTED_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (isPublicPath(pathname)) {
+    return NextResponse.next();
+  }
+
+  if (!isProtectedPath(pathname)) {
     return NextResponse.next();
   }
 

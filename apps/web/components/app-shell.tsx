@@ -16,7 +16,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const showInitialOverlay = pathname === "/explore" && !hasEntitySelection;
   const insiderActivityActive = pathname.startsWith("/activity/insiders");
   const boActivityActive = pathname.startsWith("/activity/13dg") || pathname === "/feed";
-  const authPage = pathname.startsWith("/login");
+  const authPage = pathname.startsWith("/login") || pathname.startsWith("/signup");
 
   return (
     <div className="app-shell-root h-screen overflow-hidden text-slate-100">
