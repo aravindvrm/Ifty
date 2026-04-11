@@ -44,6 +44,18 @@ class Settings(BaseSettings):
     ai_max_history_messages: int = 12
     ai_max_message_chars: int = 2000
     ai_tool_result_max_chars: int = 1800
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_auth_timeout_seconds: float = 8.0
+    supabase_auth_cache_ttl_seconds: int = 30
+    alerts_enabled: bool = True
+    alerts_webhook_mode: str = "qstash"  # qstash | direct
+    alerts_qstash_base_url: str = "https://qstash.upstash.io"
+    alerts_qstash_token: str = ""
+    alerts_qstash_retries: int = 3
+    alerts_request_timeout_seconds: float = 10.0
+    alerts_default_lookback_hours: int = 48
+    alerts_job_token: str = ""
 
 
 @lru_cache

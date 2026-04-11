@@ -7,6 +7,7 @@ import { Bookmark, LogOut, Settings, ShieldAlert } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getAuthSnapshot } from "@/lib/supabase/session";
 
 function metadataValue(user: User | null, keys: string[]): string | null {
   if (!user?.user_metadata) return null;
@@ -56,9 +57,9 @@ export function AuthUserControl() {
     if (!supabase) return;
 
     let mounted = true;
-    supabase.auth.getUser().then(({ data }) => {
+    getAuthSnapshot(supabase).then((snapshot) => {
       if (!mounted) return;
-      setUser(data.user ?? null);
+      setUser(snapshot.user);
     });
 
     const {

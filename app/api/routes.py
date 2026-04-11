@@ -10,7 +10,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
+from app.alerts.webhooks import (
+    create_subscription,
+    delete_subscription,
+    dispatch_subscriptions,
+    list_deliveries,
+    list_subscriptions,
+    send_subscription_test_event,
+    update_subscription,
+)
 from app.analytics.aggregates import AggregateRefreshService
+from app.analytics.signal_scorecards import compute_signal_scorecards
+from app.auth import get_authenticated_user_id
 from app.clients.sec_client import SecClient
 from app.dependencies import get_db, get_sec_client
 from app.ingest.sec_13f import Sec13FIngestionService
@@ -35,26 +46,43 @@ _WATCHLIST_ITEM_TYPE_VALUES = {"SECURITY", "INSTITUTION"}
 
 
 class WatchlistCreateRequest(BaseModel):
-    owner_user_id: str = Field(min_length=1, max_length=128)
+    owner_user_id: str | None = Field(default=None, min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=120)
     watchlist_type: str = Field(default="SECURITY")
     description: str | None = Field(default=None, max_length=400)
 
 
 class WatchlistUpdateRequest(BaseModel):
-    owner_user_id: str = Field(min_length=1, max_length=128)
+    owner_user_id: str | None = Field(default=None, min_length=1, max_length=128)
     name: str | None = Field(default=None, max_length=120)
     watchlist_type: str | None = Field(default=None)
     description: str | None = Field(default=None, max_length=400)
 
 
 class WatchlistItemUpsertRequest(BaseModel):
-    owner_user_id: str = Field(min_length=1, max_length=128)
+    owner_user_id: str | None = Field(default=None, min_length=1, max_length=128)
     item_type: str = Field(min_length=1, max_length=32)
     item_key: str = Field(min_length=1, max_length=120)
     item_label: str | None = Field(default=None, max_length=240)
     item_subtitle: str | None = Field(default=None, max_length=320)
     metadata: dict[str, object] | None = None
+
+
+class WebhookSubscriptionCreateRequest(BaseModel):
+    watchlist_id: str = Field(min_length=1, max_length=120)
+    endpoint_url: str = Field(min_length=1, max_length=500)
+    endpoint_secret: str | None = Field(default=None, max_length=256)
+    include_13dg: int = Field(default=1, ge=0, le=1)
+    include_insider: int = Field(default=1, ge=0, le=1)
+    is_active: int = Field(default=1, ge=0, le=1)
+
+
+class WebhookSubscriptionUpdateRequest(BaseModel):
+    endpoint_url: str | None = Field(default=None, max_length=500)
+    endpoint_secret: str | None = Field(default=None, max_length=256)
+    include_13dg: int | None = Field(default=None, ge=0, le=1)
+    include_insider: int | None = Field(default=None, ge=0, le=1)
+    is_active: int | None = Field(default=None, ge=0, le=1)
 
 
 def _bo_intent_class(form_type: object) -> str | None:
@@ -780,21 +808,24 @@ def health() -> dict[str, str]:
 
 @router.get("/watchlists")
 def get_watchlists(
-    owner_user_id: str = Query(..., min_length=1, max_length=128),
+    owner_user_id: str | None = Query(default=None, min_length=1, max_length=128),
+    current_user_id: str = Depends(get_authenticated_user_id),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
+    del owner_user_id
     _ensure_watchlist_schema(db)
-    user_id = _normalize_owner_user_id(owner_user_id)
+    user_id = _normalize_owner_user_id(current_user_id)
     return _watchlists_for_owner(db, user_id)
 
 
 @router.post("/watchlists")
 def create_watchlist(
     payload: WatchlistCreateRequest,
+    current_user_id: str = Depends(get_authenticated_user_id),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     _ensure_watchlist_schema(db)
-    owner_user_id = _normalize_owner_user_id(payload.owner_user_id)
+    owner_user_id = _normalize_owner_user_id(current_user_id)
     name = str(payload.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
@@ -857,10 +888,11 @@ def create_watchlist(
 def update_watchlist(
     watchlist_id: str,
     payload: WatchlistUpdateRequest,
+    current_user_id: str = Depends(get_authenticated_user_id),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     _ensure_watchlist_schema(db)
-    owner_user_id = _normalize_owner_user_id(payload.owner_user_id)
+    owner_user_id = _normalize_owner_user_id(current_user_id)
     current = _assert_watchlist_owner(db, watchlist_id=watchlist_id, owner_user_id=owner_user_id)
 
     name = str(payload.name or "").strip() if payload.name is not None else str(current["name"])
@@ -953,11 +985,13 @@ def update_watchlist(
 @router.delete("/watchlists/{watchlist_id}")
 def delete_watchlist(
     watchlist_id: str,
-    owner_user_id: str = Query(..., min_length=1, max_length=128),
+    owner_user_id: str | None = Query(default=None, min_length=1, max_length=128),
+    current_user_id: str = Depends(get_authenticated_user_id),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
+    del owner_user_id
     _ensure_watchlist_schema(db)
-    user_id = _normalize_owner_user_id(owner_user_id)
+    user_id = _normalize_owner_user_id(current_user_id)
     _assert_watchlist_owner(db, watchlist_id=watchlist_id, owner_user_id=user_id)
     db.execute(
         text(
@@ -977,10 +1011,11 @@ def delete_watchlist(
 def upsert_watchlist_item(
     watchlist_id: str,
     payload: WatchlistItemUpsertRequest,
+    current_user_id: str = Depends(get_authenticated_user_id),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     _ensure_watchlist_schema(db)
-    owner_user_id = _normalize_owner_user_id(payload.owner_user_id)
+    owner_user_id = _normalize_owner_user_id(current_user_id)
     watchlist = _assert_watchlist_owner(db, watchlist_id=watchlist_id, owner_user_id=owner_user_id)
     item_type = _normalize_watchlist_type(payload.item_type, item_type=True)
     item_key = _normalize_item_key(item_type, payload.item_key)
@@ -1045,13 +1080,15 @@ def upsert_watchlist_item(
 @router.delete("/watchlists/{watchlist_id}/items")
 def delete_watchlist_item(
     watchlist_id: str,
-    owner_user_id: str = Query(..., min_length=1, max_length=128),
+    owner_user_id: str | None = Query(default=None, min_length=1, max_length=128),
     item_type: str = Query(..., min_length=1, max_length=32),
     item_key: str = Query(..., min_length=1, max_length=120),
+    current_user_id: str = Depends(get_authenticated_user_id),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
+    del owner_user_id
     _ensure_watchlist_schema(db)
-    user_id = _normalize_owner_user_id(owner_user_id)
+    user_id = _normalize_owner_user_id(current_user_id)
     _assert_watchlist_owner(db, watchlist_id=watchlist_id, owner_user_id=user_id)
     normalized_item_type = _normalize_watchlist_type(item_type, item_type=True)
     normalized_item_key = _normalize_item_key(normalized_item_type, item_key)
@@ -1072,6 +1109,163 @@ def delete_watchlist_item(
     )
     db.commit()
     return {"ok": True}
+
+
+@router.get("/alerts/webhook-subscriptions")
+def get_webhook_subscriptions(
+    current_user_id: str = Depends(get_authenticated_user_id),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        return list_subscriptions(db=db, owner_user_id=_normalize_owner_user_id(current_user_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/alerts/webhook-subscriptions")
+def create_webhook_subscription(
+    payload: WebhookSubscriptionCreateRequest,
+    current_user_id: str = Depends(get_authenticated_user_id),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        return create_subscription(
+            db=db,
+            owner_user_id=_normalize_owner_user_id(current_user_id),
+            watchlist_id=str(payload.watchlist_id).strip(),
+            endpoint_url=payload.endpoint_url,
+            endpoint_secret=payload.endpoint_secret,
+            include_13dg=payload.include_13dg,
+            include_insider=payload.include_insider,
+            is_active=payload.is_active,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(status_code=404, detail=detail) from exc
+        if "already exists" in detail.lower():
+            raise HTTPException(status_code=409, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+
+@router.patch("/alerts/webhook-subscriptions/{webhook_subscription_id}")
+def patch_webhook_subscription(
+    webhook_subscription_id: str,
+    payload: WebhookSubscriptionUpdateRequest,
+    current_user_id: str = Depends(get_authenticated_user_id),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        return update_subscription(
+            db=db,
+            owner_user_id=_normalize_owner_user_id(current_user_id),
+            webhook_subscription_id=webhook_subscription_id,
+            endpoint_url=payload.endpoint_url,
+            endpoint_secret=payload.endpoint_secret,
+            include_13dg=payload.include_13dg,
+            include_insider=payload.include_insider,
+            is_active=payload.is_active,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+
+@router.delete("/alerts/webhook-subscriptions/{webhook_subscription_id}")
+def remove_webhook_subscription(
+    webhook_subscription_id: str,
+    current_user_id: str = Depends(get_authenticated_user_id),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        return delete_subscription(
+            db=db,
+            owner_user_id=_normalize_owner_user_id(current_user_id),
+            webhook_subscription_id=webhook_subscription_id,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+
+@router.get("/alerts/webhook-deliveries")
+def get_webhook_deliveries(
+    webhook_subscription_id: str | None = Query(default=None),
+    limit_n: int = Query(100, ge=1, le=500),
+    current_user_id: str = Depends(get_authenticated_user_id),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    return list_deliveries(
+        db=db,
+        owner_user_id=_normalize_owner_user_id(current_user_id),
+        webhook_subscription_id=webhook_subscription_id,
+        limit_n=limit_n,
+    )
+
+
+@router.post("/alerts/webhook-subscriptions/{webhook_subscription_id}/test")
+def test_webhook_subscription(
+    webhook_subscription_id: str,
+    current_user_id: str = Depends(get_authenticated_user_id),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        return send_subscription_test_event(
+            db=db,
+            settings=get_settings(),
+            owner_user_id=_normalize_owner_user_id(current_user_id),
+            webhook_subscription_id=webhook_subscription_id,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+
+@router.post("/alerts/dispatch")
+def dispatch_my_webhook_alerts(
+    lookback_hours: int = Query(48, ge=1, le=24 * 30),
+    max_events: int = Query(300, ge=1, le=5000),
+    webhook_subscription_id: str | None = Query(default=None),
+    current_user_id: str = Depends(get_authenticated_user_id),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    return dispatch_subscriptions(
+        db=db,
+        settings=get_settings(),
+        owner_user_id=_normalize_owner_user_id(current_user_id),
+        lookback_hours=lookback_hours,
+        max_events=max_events,
+        only_subscription_id=webhook_subscription_id,
+    )
+
+
+@router.post("/jobs/dispatch-watchlist-alerts")
+def dispatch_watchlist_alerts_job(
+    lookback_hours: int = Query(48, ge=1, le=24 * 30),
+    max_events: int = Query(1000, ge=1, le=5000),
+    webhook_subscription_id: str | None = Query(default=None),
+    job_token: str | None = Query(default=None),
+    owner_user_id: str | None = Query(default=None, min_length=1, max_length=128),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    settings = get_settings()
+    configured_job_token = str(settings.alerts_job_token or "").strip()
+    if configured_job_token and str(job_token or "").strip() != configured_job_token:
+        raise HTTPException(status_code=403, detail="Invalid alerts job token")
+    return dispatch_subscriptions(
+        db=db,
+        settings=settings,
+        owner_user_id=_normalize_owner_user_id(owner_user_id) if owner_user_id else None,
+        lookback_hours=lookback_hours,
+        max_events=max_events,
+        only_subscription_id=webhook_subscription_id,
+    )
 
 
 @router.post("/ingest/sec/13f")
@@ -2755,6 +2949,19 @@ def insider_cluster_buys(
         },
         "rows": [dict(x) for x in rows],
     }
+
+
+@router.get("/screeners/signal-scorecards")
+def signal_scorecards(
+    days: int = Query(365, ge=30, le=3650),
+    min_samples: int = Query(5, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> dict:
+    return compute_signal_scorecards(
+        db=db,
+        days=days,
+        min_samples=min_samples,
+    )
 
 
 @router.get("/institution/{manager_key}")

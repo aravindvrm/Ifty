@@ -10,12 +10,9 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - pgdata_flowtracker:/var/lib/postgresql/data
+      - /Volumes/SD3.2_256/db/flowtracker-postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U flow -d flowdb"]
       interval: 5s
       timeout: 5s
       retries: 20
-
-volumes:
-  pgdata_flowtracker:

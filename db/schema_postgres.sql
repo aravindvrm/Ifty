@@ -233,6 +233,47 @@ ON watchlist_items (watchlist_id, item_type, item_key);
 CREATE INDEX IF NOT EXISTS ix_watchlist_items_watchlist
 ON watchlist_items (watchlist_id, added_at DESC);
 
+CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+  webhook_subscription_id TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL,
+  watchlist_id TEXT NOT NULL REFERENCES watchlists (watchlist_id) ON DELETE CASCADE,
+  endpoint_url TEXT NOT NULL,
+  endpoint_secret TEXT,
+  include_13dg INTEGER NOT NULL DEFAULT 1,
+  include_insider INTEGER NOT NULL DEFAULT 1,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS ix_webhook_subscriptions_owner
+ON webhook_subscriptions (owner_user_id, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_webhook_subscriptions_owner_watchlist_endpoint
+ON webhook_subscriptions (owner_user_id, watchlist_id, endpoint_url);
+
+CREATE TABLE IF NOT EXISTS webhook_delivery_log (
+  webhook_delivery_id TEXT PRIMARY KEY,
+  webhook_subscription_id TEXT NOT NULL REFERENCES webhook_subscriptions (webhook_subscription_id) ON DELETE CASCADE,
+  owner_user_id TEXT NOT NULL,
+  event_source TEXT NOT NULL,
+  event_key TEXT NOT NULL,
+  event_ts TEXT,
+  status TEXT NOT NULL,
+  provider_message_id TEXT,
+  http_status INTEGER,
+  error_text TEXT,
+  payload_json TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  delivered_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS ix_webhook_delivery_owner_ts
+ON webhook_delivery_log (owner_user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS ix_webhook_delivery_event
+ON webhook_delivery_log (webhook_subscription_id, event_source, event_key, status, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS api_budgets (
   provider TEXT PRIMARY KEY,
   max_per_minute INTEGER,

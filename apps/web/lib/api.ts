@@ -42,6 +42,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+function authHeaders(accessToken?: string, extra?: HeadersInit): Headers {
+  const headers = new Headers(extra ?? {});
+  if (accessToken && !headers.has("authorization")) {
+    headers.set("authorization", `Bearer ${accessToken}`);
+  }
+  return headers;
+}
+
 export type SecurityPageResponse = {
   security_id: number;
   ticker: string;
@@ -594,6 +602,85 @@ export type WatchlistsResponse = {
   rows: Watchlist[];
 };
 
+export type WebhookSubscription = {
+  webhook_subscription_id: string;
+  owner_user_id: string;
+  watchlist_id: string;
+  watchlist_name: string;
+  endpoint_url: string;
+  include_13dg: number;
+  include_insider: number;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WebhookSubscriptionsResponse = {
+  owner_user_id: string;
+  rows: WebhookSubscription[];
+};
+
+export type WebhookDeliveriesResponse = {
+  owner_user_id: string;
+  rows: Array<{
+    webhook_delivery_id: string;
+    webhook_subscription_id: string;
+    owner_user_id: string;
+    event_source: string;
+    event_key: string;
+    event_ts: string | null;
+    status: string;
+    provider_message_id: string | null;
+    http_status: number | null;
+    error_text: string | null;
+    created_at: string | null;
+    delivered_at: string | null;
+  }>;
+};
+
+export type SignalScorecardsResponse = {
+  window_days: number;
+  start_date: string;
+  end_date: string;
+  generated_at: string;
+  rows: Array<{
+    signal_id: string;
+    label: string;
+    direction: "BULLISH" | "BEARISH";
+    description: string;
+    sample_n: number;
+    hits: number;
+    misses: number;
+    hit_rate_pct: number | null;
+    median_follow_through_value_usd: number | null;
+    median_abs_follow_through_value_usd: number | null;
+    median_follow_through_holders: number | null;
+    insufficient_samples: boolean;
+  }>;
+};
+
+export type DailyBriefingResponse = {
+  owner_user_id: string;
+  days: number;
+  generated_at: string;
+  summary: string;
+  highlights: Array<{
+    title: string;
+    summary: string;
+    event_source: string;
+    event_ts: string;
+    path: string;
+    sec_url: string;
+  }>;
+  sources: Array<{ label: string; url?: string; path?: string }>;
+  counts: {
+    events: number;
+    by_source: Record<string, number>;
+  };
+  ai_used: boolean;
+  ai_error: string | null;
+};
+
 export function getSecurity(ticker: string) {
   return requestJson<SecurityPageResponse>(`/security/${encodeURIComponent(ticker.toUpperCase())}`);
 }
@@ -807,16 +894,17 @@ export function getInsiderClusters(
   return requestJson<InsiderClusterResponse>(`/screeners/insider-clusters${qs ? `?${qs}` : ""}`);
 }
 
-export function getWatchlists(ownerUserId: string) {
-  return requestJson<WatchlistsResponse>(`/watchlists?owner_user_id=${encodeURIComponent(ownerUserId)}`);
+export function getWatchlists(accessToken: string) {
+  return requestJson<WatchlistsResponse>("/watchlists", {
+    headers: authHeaders(accessToken),
+  });
 }
 
 export function createWatchlist(payload: {
-  owner_user_id: string;
   name: string;
   watchlist_type: WatchlistType;
   description?: string | null;
-}) {
+}, accessToken: string) {
   return requestJson<{
     watchlist_id: string;
     owner_user_id: string;
@@ -825,7 +913,7 @@ export function createWatchlist(payload: {
     description: string | null;
   }>("/watchlists", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: authHeaders(accessToken, { "content-type": "application/json" }),
     body: JSON.stringify(payload),
   });
 }
@@ -833,11 +921,11 @@ export function createWatchlist(payload: {
 export function updateWatchlist(
   watchlistId: string,
   payload: {
-    owner_user_id: string;
     name?: string;
     watchlist_type?: WatchlistType;
     description?: string | null;
-  }
+  },
+  accessToken: string
 ) {
   return requestJson<{
     watchlist_id: string;
@@ -847,34 +935,34 @@ export function updateWatchlist(
     description: string | null;
   }>(`/watchlists/${encodeURIComponent(watchlistId)}`, {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: authHeaders(accessToken, { "content-type": "application/json" }),
     body: JSON.stringify(payload),
   });
 }
 
-export function deleteWatchlist(watchlistId: string, ownerUserId: string) {
-  return requestJson<{ ok: boolean }>(
-    `/watchlists/${encodeURIComponent(watchlistId)}?owner_user_id=${encodeURIComponent(ownerUserId)}`,
-    { method: "DELETE" }
-  );
+export function deleteWatchlist(watchlistId: string, accessToken: string) {
+  return requestJson<{ ok: boolean }>(`/watchlists/${encodeURIComponent(watchlistId)}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken),
+  });
 }
 
 export function upsertWatchlistItem(
   watchlistId: string,
   payload: {
-    owner_user_id: string;
     item_type: WatchlistItemType;
     item_key: string;
     item_label?: string | null;
     item_subtitle?: string | null;
     metadata?: Record<string, unknown> | null;
-  }
+  },
+  accessToken: string
 ) {
   return requestJson<{ ok: boolean; watchlist_id: string; item_type: WatchlistItemType; item_key: string }>(
     `/watchlists/${encodeURIComponent(watchlistId)}/items`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: authHeaders(accessToken, { "content-type": "application/json" }),
       body: JSON.stringify(payload),
     }
   );
@@ -883,17 +971,160 @@ export function upsertWatchlistItem(
 export function deleteWatchlistItem(
   watchlistId: string,
   params: {
-    owner_user_id: string;
     item_type: WatchlistItemType;
     item_key: string;
-  }
+  },
+  accessToken: string
 ) {
   const qs = new URLSearchParams({
-    owner_user_id: params.owner_user_id,
     item_type: params.item_type,
     item_key: params.item_key,
   }).toString();
   return requestJson<{ ok: boolean }>(`/watchlists/${encodeURIComponent(watchlistId)}/items?${qs}`, {
     method: "DELETE",
+    headers: authHeaders(accessToken),
+  });
+}
+
+export function getSignalScorecards(options?: { days?: number; minSamples?: number }) {
+  const params = new URLSearchParams();
+  if (options?.days !== undefined) params.set("days", String(options.days));
+  if (options?.minSamples !== undefined) params.set("min_samples", String(options.minSamples));
+  const qs = params.toString();
+  return requestJson<SignalScorecardsResponse>(`/screeners/signal-scorecards${qs ? `?${qs}` : ""}`);
+}
+
+export function getDailyBriefing(
+  accessToken: string,
+  options?: {
+    days?: number;
+    maxEvents?: number;
+  }
+) {
+  const params = new URLSearchParams();
+  if (options?.days !== undefined) params.set("days", String(options.days));
+  if (options?.maxEvents !== undefined) params.set("max_events", String(options.maxEvents));
+  const qs = params.toString();
+  return requestJson<DailyBriefingResponse>(`/ai/daily-briefing${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(accessToken),
+  });
+}
+
+export function getWebhookSubscriptions(accessToken: string) {
+  return requestJson<WebhookSubscriptionsResponse>("/alerts/webhook-subscriptions", {
+    headers: authHeaders(accessToken),
+  });
+}
+
+export function createWebhookSubscription(
+  accessToken: string,
+  payload: {
+    watchlist_id: string;
+    endpoint_url: string;
+    endpoint_secret?: string | null;
+    include_13dg?: number;
+    include_insider?: number;
+    is_active?: number;
+  }
+) {
+  return requestJson<{
+    webhook_subscription_id: string;
+    owner_user_id: string;
+    watchlist_id: string;
+    endpoint_url: string;
+    include_13dg: number;
+    include_insider: number;
+    is_active: number;
+  }>("/alerts/webhook-subscriptions", {
+    method: "POST",
+    headers: authHeaders(accessToken, { "content-type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateWebhookSubscription(
+  accessToken: string,
+  webhookSubscriptionId: string,
+  payload: {
+    endpoint_url?: string;
+    endpoint_secret?: string | null;
+    include_13dg?: number;
+    include_insider?: number;
+    is_active?: number;
+  }
+) {
+  return requestJson<{
+    webhook_subscription_id: string;
+    owner_user_id: string;
+    watchlist_id: string;
+    endpoint_url: string;
+    include_13dg: number;
+    include_insider: number;
+    is_active: number;
+  }>(`/alerts/webhook-subscriptions/${encodeURIComponent(webhookSubscriptionId)}`, {
+    method: "PATCH",
+    headers: authHeaders(accessToken, { "content-type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteWebhookSubscription(accessToken: string, webhookSubscriptionId: string) {
+  return requestJson<{ ok: boolean }>(
+    `/alerts/webhook-subscriptions/${encodeURIComponent(webhookSubscriptionId)}`,
+    {
+      method: "DELETE",
+      headers: authHeaders(accessToken),
+    }
+  );
+}
+
+export function testWebhookSubscription(accessToken: string, webhookSubscriptionId: string) {
+  return requestJson<{
+    ok: boolean;
+    status: string;
+    http_status: number | null;
+    provider_message_id: string | null;
+    error_text: string | null;
+  }>(`/alerts/webhook-subscriptions/${encodeURIComponent(webhookSubscriptionId)}/test`, {
+    method: "POST",
+    headers: authHeaders(accessToken),
+  });
+}
+
+export function getWebhookDeliveries(
+  accessToken: string,
+  options?: { webhookSubscriptionId?: string; limitN?: number }
+) {
+  const params = new URLSearchParams();
+  if (options?.webhookSubscriptionId) params.set("webhook_subscription_id", options.webhookSubscriptionId);
+  if (options?.limitN !== undefined) params.set("limit_n", String(options.limitN));
+  const qs = params.toString();
+  return requestJson<WebhookDeliveriesResponse>(`/alerts/webhook-deliveries${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(accessToken),
+  });
+}
+
+export function dispatchWebhookAlerts(
+  accessToken: string,
+  options?: { lookbackHours?: number; maxEvents?: number; webhookSubscriptionId?: string }
+) {
+  const params = new URLSearchParams();
+  if (options?.lookbackHours !== undefined) params.set("lookback_hours", String(options.lookbackHours));
+  if (options?.maxEvents !== undefined) params.set("max_events", String(options.maxEvents));
+  if (options?.webhookSubscriptionId) params.set("webhook_subscription_id", options.webhookSubscriptionId);
+  const qs = params.toString();
+  return requestJson<{
+    ok: boolean;
+    owner_user_id: string | null;
+    lookback_hours: number;
+    subscriptions: number;
+    inspected_events: number;
+    dispatched: number;
+    failed: number;
+    skipped_duplicates: number;
+    max_events: number;
+  }>(`/alerts/dispatch${qs ? `?${qs}` : ""}`, {
+    method: "POST",
+    headers: authHeaders(accessToken),
   });
 }

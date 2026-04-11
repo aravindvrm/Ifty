@@ -3,13 +3,15 @@ from __future__ import annotations
 from time import perf_counter
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.ai.daily_briefing import build_daily_briefing
 from app.ai.openai_compat import OpenAICompatClient
 from app.ai.service import AiChatService
+from app.auth import get_authenticated_user_id
 from app.config import get_settings
 from app.dependencies import get_db
 
@@ -35,6 +37,18 @@ class AiChatResponse(BaseModel):
     sql_fallback_enabled: bool
     steps: int
     trace: list[dict[str, Any]] | None = None
+
+
+class DailyBriefingResponse(BaseModel):
+    owner_user_id: str
+    days: int
+    generated_at: str
+    summary: str
+    highlights: list[dict[str, str]]
+    sources: list[dict[str, str]]
+    counts: dict[str, Any]
+    ai_used: bool
+    ai_error: str | None = None
 
 
 def _normalize_ticker(value: object) -> str | None:
@@ -263,3 +277,21 @@ def ai_chat(
         steps=result.steps,
         trace=(result.trace if payload.include_trace else None),
     )
+
+
+@router.get("/daily-briefing", response_model=DailyBriefingResponse)
+def daily_briefing(
+    days: int = Query(1, ge=1, le=30),
+    max_events: int = Query(40, ge=1, le=200),
+    current_user_id: str = Depends(get_authenticated_user_id),
+    db: Session = Depends(get_db),
+) -> DailyBriefingResponse:
+    settings = get_settings()
+    briefing = build_daily_briefing(
+        db=db,
+        owner_user_id=str(current_user_id),
+        settings=settings,
+        days=days,
+        max_events=max_events,
+    )
+    return DailyBriefingResponse(**briefing)

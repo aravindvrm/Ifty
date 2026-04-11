@@ -1,8 +1,9 @@
+import { DailyBriefingPanel } from "@/components/daily-briefing-panel";
 import { FlowDistributionHistogram } from "@/components/flow-distribution-histogram";
 import { Top13DGColumn } from "@/components/top-13dg-column";
 import { TopMoversColumn } from "@/components/top-movers-column";
 import { TickerIcon } from "@/components/ticker-icon";
-import { getHomeOverview, getInsiderClusters, getInsiderFeed } from "@/lib/api";
+import { getHomeOverview, getInsiderClusters, getInsiderFeed, getSignalScorecards } from "@/lib/api";
 import { fmtNumber, fmtUsd } from "@/lib/format";
 import Link from "next/link";
 
@@ -46,7 +47,7 @@ export async function MarketPulseView() {
   const flowBins = overview.flow_distribution.bins ?? [];
   const flowFilters = overview.flow_distribution.filters ?? {};
 
-  const [insiderBuysResult, insiderSellsResult, insiderClustersResult] = await Promise.allSettled([
+  const [insiderBuysResult, insiderSellsResult, insiderClustersResult, scorecardsResult] = await Promise.allSettled([
     getInsiderFeed({
       days: 30,
       limitN: 6,
@@ -63,6 +64,10 @@ export async function MarketPulseView() {
       minDistinctInsiders: 2,
       signalType: "OPEN_MARKET_BUY",
     }),
+    getSignalScorecards({
+      days: 365,
+      minSamples: 5,
+    }),
   ]);
   const insiderBuys = insiderBuysResult.status === "fulfilled" ? insiderBuysResult.value.rows : [];
   const insiderSells = insiderSellsResult.status === "fulfilled" ? insiderSellsResult.value.rows : [];
@@ -71,6 +76,8 @@ export async function MarketPulseView() {
     insiderBuysResult.status === "rejected" ||
     insiderSellsResult.status === "rejected" ||
     insiderClustersResult.status === "rejected";
+  const scorecards = scorecardsResult.status === "fulfilled" ? scorecardsResult.value.rows : [];
+  const scorecardsFailed = scorecardsResult.status === "rejected";
 
   return (
     <div className="space-y-10">
@@ -265,6 +272,56 @@ export async function MarketPulseView() {
           </div>
         </article>
       </section>
+
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-100">Signal Scorecards</h2>
+          <span className="text-xs text-slate-500">1 year follow-through</span>
+        </div>
+        <article className="rounded-none border border-line/80 bg-card/80 p-5 shadow-panel">
+          <div className="overflow-x-auto border border-line/70">
+            <table className="min-w-full divide-y divide-line/60 text-sm">
+              <thead>
+                <tr className="bg-black/20 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2">Signal</th>
+                  <th className="px-3 py-2 text-right">Samples</th>
+                  <th className="px-3 py-2 text-right">Hit Rate</th>
+                  <th className="px-3 py-2 text-right">Median Follow-Through</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line/50 text-slate-300">
+                {scorecards.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-4 text-center text-xs text-slate-500">
+                      {scorecardsFailed ? "Scorecards unavailable." : "No scorecard data yet."}
+                    </td>
+                  </tr>
+                ) : (
+                  scorecards.map((row) => (
+                    <tr key={row.signal_id}>
+                      <td className="px-3 py-2">
+                        <div className="text-slate-100">{row.label}</div>
+                        <div className="mt-0.5 text-[11px] text-slate-500">{row.direction}</div>
+                      </td>
+                      <td className="px-3 py-2 text-right">{fmtNumber(row.sample_n)}</td>
+                      <td className="px-3 py-2 text-right">
+                        {row.hit_rate_pct === null || row.hit_rate_pct === undefined ? "-" : `${row.hit_rate_pct.toFixed(1)}%`}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {row.median_follow_through_value_usd === null || row.median_follow_through_value_usd === undefined
+                          ? "-"
+                          : fmtUsd(row.median_follow_through_value_usd)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <DailyBriefingPanel />
 
     </div>
   );

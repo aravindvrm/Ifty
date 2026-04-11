@@ -6,6 +6,7 @@ import type { User } from "@supabase/supabase-js";
 
 import { LottieLoader } from "@/components/lottie-loader";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getAuthSnapshot } from "@/lib/supabase/session";
 
 function metadataString(user: User | null, keys: string[]): string {
   if (!user?.user_metadata) return "";
@@ -32,12 +33,15 @@ export default function AccountPage() {
     }
     const supabaseClient = supabase;
     let mounted = true;
-    supabaseClient.auth.getUser().then(({ data }) => {
+    getAuthSnapshot(supabaseClient).then((snapshot) => {
       if (!mounted) return;
-      const nextUser = data.user ?? null;
+      const nextUser = snapshot.user ?? null;
       setUser(nextUser);
       setDisplayName(metadataString(nextUser, ["nickname", "name", "full_name", "preferred_username"]));
       setAvatarUrl(metadataString(nextUser, ["avatar_url", "picture"]));
+      if (snapshot.recoveredInvalidRefreshToken) {
+        setStatusText("Session expired. Please sign in again.");
+      }
       setLoading(false);
     });
 

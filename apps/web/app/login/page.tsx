@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getDefaultPostLoginPath, normalizeNextPath } from "@/lib/auth";
 import { buildAuthCallbackUrl } from "@/lib/auth-redirect";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getAuthSnapshot } from "@/lib/supabase/session";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -25,9 +26,13 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) {
+    getAuthSnapshot(supabase).then((snapshot) => {
+      if (snapshot.user) {
         router.replace(nextPath || getDefaultPostLoginPath());
+        return;
+      }
+      if (snapshot.recoveredInvalidRefreshToken) {
+        setNotice("Session expired. Please sign in again.");
       }
     });
   }, [nextPath, router, supabase]);

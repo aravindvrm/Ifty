@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { LottieLoader } from "@/components/lottie-loader";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getAuthSnapshot } from "@/lib/supabase/session";
 
 export function SaveToWatchlistControl({
   itemType,
@@ -33,6 +34,7 @@ export function SaveToWatchlistControl({
 
   const [open, setOpen] = useState(false);
   const [ownerUserId, setOwnerUserId] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [lists, setLists] = useState<Watchlist[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -53,15 +55,20 @@ export function SaveToWatchlistControl({
       setLoading(true);
       setStatusText("");
       try {
-        const { data } = await supabaseClient.auth.getUser();
+        const snapshot = await getAuthSnapshot(supabaseClient);
         if (cancelled) return;
-        const userId = data.user?.id ?? null;
+        const userId = snapshot.user?.id ?? null;
+        const token = snapshot.session?.access_token ?? null;
         setOwnerUserId(userId);
-        if (!userId) {
+        setAccessToken(token);
+        if (!userId || !token) {
           setLists([]);
+          if (snapshot.recoveredInvalidRefreshToken) {
+            setStatusText("Session expired. Please sign in again.");
+          }
           return;
         }
-        const response = await getWatchlists(userId);
+        const response = await getWatchlists(token);
         if (cancelled) return;
         setLists(response.rows ?? []);
       } catch (error) {
@@ -95,12 +102,11 @@ export function SaveToWatchlistControl({
   }, [open]);
 
   async function addToExisting(watchlist: Watchlist) {
-    if (!ownerUserId) return;
+    if (!ownerUserId || !accessToken) return;
     setBusy(true);
     setStatusText("");
     try {
       await upsertWatchlistItem(watchlist.watchlist_id, {
-        owner_user_id: ownerUserId,
         item_type: itemType,
         item_key: itemKey,
         item_label: itemLabel,
@@ -108,7 +114,7 @@ export function SaveToWatchlistControl({
         metadata: {
           source: "explore_entity_view",
         },
-      });
+      }, accessToken);
       setStatusText(`Added to ${watchlist.name}`);
     } catch (error) {
       setStatusText(`Watch failed: ${String(error)}`);
@@ -118,7 +124,7 @@ export function SaveToWatchlistControl({
   }
 
   async function createAndWatch() {
-    if (!ownerUserId) return;
+    if (!ownerUserId || !accessToken) return;
     const name = newListName.trim();
     if (!name) {
       setStatusText("Enter a watchlist name");
@@ -128,12 +134,10 @@ export function SaveToWatchlistControl({
     setStatusText("");
     try {
       const created = await createWatchlist({
-        owner_user_id: ownerUserId,
         name,
         watchlist_type: itemType,
-      });
+      }, accessToken);
       await upsertWatchlistItem(created.watchlist_id, {
-        owner_user_id: ownerUserId,
         item_type: itemType,
         item_key: itemKey,
         item_label: itemLabel,
@@ -141,8 +145,8 @@ export function SaveToWatchlistControl({
         metadata: {
           source: "explore_entity_view",
         },
-      });
-      const refreshed = await getWatchlists(ownerUserId);
+      }, accessToken);
+      const refreshed = await getWatchlists(accessToken);
       setLists(refreshed.rows ?? []);
       setNewListName("");
       setCreateExpanded(false);
