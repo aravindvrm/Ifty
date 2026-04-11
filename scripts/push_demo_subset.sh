@@ -38,7 +38,7 @@ run_cli() {
 if [[ "${DEMO_RUN_LOCAL_INCREMENTAL:-0}" == "1" ]]; then
   incr_cmd=(
     python -m app.cli update-incremental
-    --top-n "${DEMO_INCREMENTAL_TOP_N:-${DEMO_TOP_N:-75}}"
+    --top-n "${DEMO_INCREMENTAL_TOP_N:-300}"
     --ingest-limit "${DEMO_INCREMENTAL_INGEST_LIMIT:-20}"
     --resolve-quarters "${DEMO_INCREMENTAL_RESOLVE_QUARTERS:-6}"
     --recent-quarters "${DEMO_INCREMENTAL_RECENT_QUARTERS:-4}"

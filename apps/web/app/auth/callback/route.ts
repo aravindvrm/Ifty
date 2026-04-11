@@ -4,10 +4,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDefaultPostLoginPath, normalizeNextPath } from "@/lib/auth";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 
+function isLocalHostname(hostname: string): boolean {
+  const value = hostname.trim().toLowerCase();
+  return value === "localhost" || value === "127.0.0.1" || value === "::1";
+}
+
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
   const nextPath = normalizeNextPath(requestUrl.searchParams.get("next"));
+  const localHost = isLocalHostname(requestUrl.hostname);
 
   const env = getSupabaseEnv();
   if (!env || !code) {
@@ -22,7 +28,12 @@ export async function GET(request: NextRequest) {
         return request.cookies.getAll();
       },
       setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+        cookiesToSet.forEach(({ name, value, options }) =>
+          response.cookies.set(name, value, {
+            ...options,
+            secure: localHost ? false : options?.secure,
+          })
+        );
       },
     },
   });

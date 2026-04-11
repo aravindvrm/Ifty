@@ -7,13 +7,18 @@ function getApiBase(): string {
   return typeof window === "undefined" ? SERVER_API_BASE : CLIENT_API_BASE;
 }
 
-async function requestJson<T>(path: string): Promise<T> {
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   const base = getApiBase();
+  const fetchInit: RequestInit = {
+    cache: "no-store",
+    ...init,
+    signal: controller.signal,
+  };
   let response: Response;
   try {
-    response = await fetch(`${base}${path}`, { cache: "no-store", signal: controller.signal });
+    response = await fetch(`${base}${path}`, fetchInit);
   } catch (error) {
     // Server-side fallback when localhost DNS lookup fails.
     if (typeof window !== "undefined") {
@@ -26,7 +31,7 @@ async function requestJson<T>(path: string): Promise<T> {
       throw error;
     }
     const fallbackBase = localhostBase.replace("localhost", "127.0.0.1");
-    response = await fetch(`${fallbackBase}${path}`, { cache: "no-store", signal: controller.signal });
+    response = await fetch(`${fallbackBase}${path}`, fetchInit);
   } finally {
     clearTimeout(timeout);
   }
@@ -557,6 +562,38 @@ export type InsiderClusterResponse = {
   }>;
 };
 
+export type WatchlistType = "SECURITY" | "INSTITUTION";
+export type WatchlistItemType = "SECURITY" | "INSTITUTION";
+
+export type WatchlistItem = {
+  watchlist_item_id: string;
+  watchlist_id: string;
+  item_type: WatchlistItemType;
+  item_key: string;
+  item_label: string | null;
+  item_subtitle: string | null;
+  metadata: Record<string, unknown> | null;
+  added_at: string | null;
+  updated_at: string | null;
+};
+
+export type Watchlist = {
+  watchlist_id: string;
+  owner_user_id: string;
+  name: string;
+  watchlist_type: WatchlistType;
+  description: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  item_count: number;
+  items: WatchlistItem[];
+};
+
+export type WatchlistsResponse = {
+  owner_user_id: string;
+  rows: Watchlist[];
+};
+
 export function getSecurity(ticker: string) {
   return requestJson<SecurityPageResponse>(`/security/${encodeURIComponent(ticker.toUpperCase())}`);
 }
@@ -768,4 +805,95 @@ export function getInsiderClusters(
   if (options?.signalType) params.set("signal_type", options.signalType);
   const qs = params.toString();
   return requestJson<InsiderClusterResponse>(`/screeners/insider-clusters${qs ? `?${qs}` : ""}`);
+}
+
+export function getWatchlists(ownerUserId: string) {
+  return requestJson<WatchlistsResponse>(`/watchlists?owner_user_id=${encodeURIComponent(ownerUserId)}`);
+}
+
+export function createWatchlist(payload: {
+  owner_user_id: string;
+  name: string;
+  watchlist_type: WatchlistType;
+  description?: string | null;
+}) {
+  return requestJson<{
+    watchlist_id: string;
+    owner_user_id: string;
+    name: string;
+    watchlist_type: WatchlistType;
+    description: string | null;
+  }>("/watchlists", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateWatchlist(
+  watchlistId: string,
+  payload: {
+    owner_user_id: string;
+    name?: string;
+    watchlist_type?: WatchlistType;
+    description?: string | null;
+  }
+) {
+  return requestJson<{
+    watchlist_id: string;
+    owner_user_id: string;
+    name: string;
+    watchlist_type: WatchlistType;
+    description: string | null;
+  }>(`/watchlists/${encodeURIComponent(watchlistId)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteWatchlist(watchlistId: string, ownerUserId: string) {
+  return requestJson<{ ok: boolean }>(
+    `/watchlists/${encodeURIComponent(watchlistId)}?owner_user_id=${encodeURIComponent(ownerUserId)}`,
+    { method: "DELETE" }
+  );
+}
+
+export function upsertWatchlistItem(
+  watchlistId: string,
+  payload: {
+    owner_user_id: string;
+    item_type: WatchlistItemType;
+    item_key: string;
+    item_label?: string | null;
+    item_subtitle?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }
+) {
+  return requestJson<{ ok: boolean; watchlist_id: string; item_type: WatchlistItemType; item_key: string }>(
+    `/watchlists/${encodeURIComponent(watchlistId)}/items`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export function deleteWatchlistItem(
+  watchlistId: string,
+  params: {
+    owner_user_id: string;
+    item_type: WatchlistItemType;
+    item_key: string;
+  }
+) {
+  const qs = new URLSearchParams({
+    owner_user_id: params.owner_user_id,
+    item_type: params.item_type,
+    item_key: params.item_key,
+  }).toString();
+  return requestJson<{ ok: boolean }>(`/watchlists/${encodeURIComponent(watchlistId)}/items?${qs}`, {
+    method: "DELETE",
+  });
 }
