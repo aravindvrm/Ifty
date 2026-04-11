@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: init-db smoke-import smoke-health api-test web-install web-dev pipeline-run incremental-run seed-ingest discover-ciks seed-full pg-up pg-down pg-reset pg-migrate pg-status pg-resume-post pg-incremental
+.PHONY: init-db smoke-import smoke-health api-test web-install web-dev pipeline-run incremental-run seed-ingest discover-ciks seed-full publish-demo pg-up pg-down pg-reset pg-migrate pg-status pg-resume-post pg-incremental
 
 init-db:
 	source .venv/bin/activate && SEC_USER_AGENT="$${SEC_USER_AGENT:-Aravind V aravindvrm@gmail.com}" python -m app.cli init-db
@@ -70,6 +70,10 @@ seed-full:
 
 seed-top-aum:
 	. .venv/bin/activate && python -m app.cli seed-top-aum --top-n 100 --limit 40 --include-13dg
+
+publish-demo:
+	bash -lc 'set -euo pipefail; \
+	./scripts/push_demo_subset.sh'
 
 pg-up:
 	docker compose -f docker-compose.postgres.yml up -d postgres

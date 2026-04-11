@@ -195,23 +195,47 @@ Or via wrapper script (reads env vars from `.env`):
 ./scripts/push_demo_subset.sh
 ```
 
+### One-shot refresh + publish pipeline
+
+Use this when you want the remote demo DB to include the latest locally ingested data before publishing:
+
+```bash
+DEMO_RUN_LOCAL_INCREMENTAL=1 \
+DEMO_RUN_LOCAL_UPDATES=1 \
+DEMO_TOP_N=75 \
+DEMO_QUARTERS=3 \
+./scripts/push_demo_subset.sh
+```
+
+Key knobs:
+- `DEMO_RUN_LOCAL_INCREMENTAL=1`: run local `update-incremental` before publish.
+- `DEMO_RUN_LOCAL_UPDATES=1`: run local `update-13dg-feed` and `update-form4-feed` before publish (default on; set `DEMO_RUN_LOCAL_UPDATES=0` to skip).
+- `DEMO_TOP_N`: managers to include in remote subset (default `75`).
+- `DEMO_QUARTERS`: mapped 13F quarters to include (default `2`).
+- `DEMO_COMPACT_HOLDINGS=1`: pre-aggregate 13F holdings to manager+security+quarter before publish (default on).
+- `DEMO_BO_KEEP_DAYS`, `DEMO_INSIDER_KEEP_DAYS`: recency windows for 13D/G and Form 4.
+- `DEMO_INCREMENTAL_*`: tuning for local incremental pre-refresh (`TOP_N`, `INGEST_LIMIT`, `RESOLVE_QUARTERS`, etc.).
+
 ### Cron Scheduling (recommended)
 
 Use the provided scripts:
 - `scripts/cron_form4_feed.sh`
 - `scripts/cron_13dg_feed.sh`
 - `scripts/push_demo_subset.sh`
+- `scripts/cron_publish_demo.sh`
 
 Example crontab (Form 4 every 30m, 13D/G daily at 02:10 local time):
 
 ```cron
 */30 * * * * /Users/avrm/Documents/Repos/Codex/13F-tracker/scripts/cron_form4_feed.sh
 10 2 * * * /Users/avrm/Documents/Repos/Codex/13F-tracker/scripts/cron_13dg_feed.sh
+45 2 * * * /Users/avrm/Documents/Repos/Codex/13F-tracker/scripts/cron_publish_demo.sh
 ```
 
 Optional runtime overrides via env vars:
 - Form 4 script: `FORM4_DAYS`, `FORM4_MAX_FILINGS`
 - 13D/G script: `DG_TOP_N`, `DG_PER_MANAGER_LIMIT`, `DG_RESOLVE_LIMIT`, `DG_DISCOVERY_MODE`, `DG_DISCOVERY_DAYS`
+- Publish script: `DEMO_REMOTE_DB_URL`, `DEMO_TOP_N`, `DEMO_QUARTERS`, `DEMO_COMPACT_HOLDINGS`, `DEMO_RUN_LOCAL_INCREMENTAL`, `DEMO_RUN_LOCAL_UPDATES`
 
 ### Validation
 

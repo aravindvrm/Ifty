@@ -299,6 +299,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     push_demo.add_argument("--batch-size", type=int, default=5000, help="Rows per COPY batch into remote DB.")
     push_demo.add_argument(
+        "--compact-holdings",
+        action="store_true",
+        default=True,
+        help="Pre-aggregate holdings to manager+security+quarter before pushing (default on).",
+    )
+    push_demo.add_argument(
+        "--no-compact-holdings",
+        action="store_false",
+        dest="compact_holdings",
+        help="Push raw filtered holdings rows instead of compact aggregates.",
+    )
+    push_demo.add_argument(
         "--skip-schema-init",
         action="store_true",
         default=False,
@@ -1771,6 +1783,7 @@ def _push_demo_subset(
     insider_keep_days: int,
     batch_size: int,
     skip_schema_init: bool,
+    compact_holdings: bool,
     dry_run: bool,
 ) -> None:
     from sqlalchemy.engine import make_url
@@ -1890,6 +1903,30 @@ def _push_demo_subset(
                       AND report_date IN :report_dates
                       AND option_type IS NULL
                       AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+                    """
+                ).bindparams(
+                    bindparam("manager_ids", expanding=True),
+                    bindparam("report_dates", expanding=True),
+                ),
+                {"manager_ids": keep_manager_ids, "report_dates": latest_report_dates},
+            ).scalar()
+            or 0
+        )
+        holdings_compact_rows_count = int(
+            src_conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*)
+                    FROM (
+                      SELECT 1
+                      FROM holdings_13f
+                      WHERE manager_id IN :manager_ids
+                        AND report_date IN :report_dates
+                        AND option_type IS NULL
+                        AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+                        AND security_id IS NOT NULL
+                      GROUP BY manager_id, security_id, report_date
+                    ) q
                     """
                 ).bindparams(
                     bindparam("manager_ids", expanding=True),
@@ -2061,7 +2098,9 @@ def _push_demo_subset(
         "managers": len(keep_manager_ids),
         "securities": len(keep_security_ids),
         "filings": len(keep_filing_ids),
-        "holdings_rows": holdings_rows_count,
+        "holdings_rows_source": holdings_rows_count,
+        "holdings_rows_compact": holdings_compact_rows_count,
+        "compact_holdings": int(bool(compact_holdings)),
         "bo_events": len(bo_event_ids),
         "insider_transactions": len(insider_tx_ids),
         "bo_cutoff": bo_cutoff,
@@ -2155,26 +2194,89 @@ def _push_demo_subset(
         params={"filing_ids": keep_filing_ids},
         batch_size=batch_size,
     )
-    copied_counts["holdings_13f"] = _copy_query_to_target(
-        source_engine=source_engine,
-        target_engine=target_engine,
-        table_name="holdings_13f",
-        select_stmt=text(
-            """
-            SELECT *
-            FROM holdings_13f
-            WHERE manager_id IN :manager_ids
-              AND report_date IN :report_dates
-              AND option_type IS NULL
-              AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
-            """
-        ).bindparams(
-            bindparam("manager_ids", expanding=True),
-            bindparam("report_dates", expanding=True),
-        ),
-        params={"manager_ids": keep_manager_ids, "report_dates": latest_report_dates},
-        batch_size=batch_size,
-    )
+    if compact_holdings:
+        copied_counts["holdings_13f"] = _copy_query_to_target(
+            source_engine=source_engine,
+            target_engine=target_engine,
+            table_name="holdings_13f",
+            select_stmt=text(
+                """
+                WITH agg AS (
+                  SELECT
+                    MIN(h.filing_id) AS filing_id,
+                    h.manager_id,
+                    h.security_id,
+                    h.report_date,
+                    MAX(COALESCE(h.issuer_name_raw, '')) AS issuer_name_raw,
+                    MAX(COALESCE(h.class_title_raw, '')) AS class_title_raw,
+                    MAX(COALESCE(h.cusip_raw, '')) AS cusip_raw,
+                    MAX(COALESCE(h.ticker_raw, '')) AS ticker_raw,
+                    SUM(COALESCE(h.value_usd_thousands, 0.0)) AS value_usd_thousands,
+                    SUM(COALESCE(h.shares, 0.0)) AS shares,
+                    SUM(COALESCE(h.voting_sole, 0.0)) AS voting_sole,
+                    SUM(COALESCE(h.voting_shared, 0.0)) AS voting_shared,
+                    SUM(COALESCE(h.voting_none, 0.0)) AS voting_none
+                  FROM holdings_13f h
+                  WHERE h.manager_id IN :manager_ids
+                    AND h.report_date IN :report_dates
+                    AND h.option_type IS NULL
+                    AND h.mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+                    AND h.security_id IS NOT NULL
+                  GROUP BY h.manager_id, h.security_id, h.report_date
+                )
+                SELECT
+                  ROW_NUMBER() OVER (ORDER BY a.manager_id, a.report_date, a.security_id)::BIGINT AS holding_13f_id,
+                  a.filing_id AS filing_id,
+                  a.manager_id AS manager_id,
+                  a.security_id AS security_id,
+                  a.report_date AS report_date,
+                  NULLIF(a.issuer_name_raw, '') AS issuer_name_raw,
+                  NULLIF(a.class_title_raw, '') AS class_title_raw,
+                  NULLIF(a.cusip_raw, '') AS cusip_raw,
+                  NULLIF(a.ticker_raw, '') AS ticker_raw,
+                  a.value_usd_thousands AS value_usd_thousands,
+                  a.shares AS shares,
+                  NULL::TEXT AS share_type,
+                  NULL::TEXT AS option_type,
+                  NULL::TEXT AS investment_discretion,
+                  NULL::TEXT AS other_manager_text,
+                  a.voting_sole AS voting_sole,
+                  a.voting_shared AS voting_shared,
+                  a.voting_none AS voting_none,
+                  ('CMP|' || a.manager_id::text || '|' || a.security_id::text || '|' || a.report_date) AS row_hash,
+                  'MAPPED' AS mapping_status,
+                  1.0::DOUBLE PRECISION AS mapping_confidence,
+                  NOW() AS created_at
+                FROM agg a
+                """
+            ).bindparams(
+                bindparam("manager_ids", expanding=True),
+                bindparam("report_dates", expanding=True),
+            ),
+            params={"manager_ids": keep_manager_ids, "report_dates": latest_report_dates},
+            batch_size=batch_size,
+        )
+    else:
+        copied_counts["holdings_13f"] = _copy_query_to_target(
+            source_engine=source_engine,
+            target_engine=target_engine,
+            table_name="holdings_13f",
+            select_stmt=text(
+                """
+                SELECT *
+                FROM holdings_13f
+                WHERE manager_id IN :manager_ids
+                  AND report_date IN :report_dates
+                  AND option_type IS NULL
+                  AND mapping_status IN ('MAPPED', 'MAPPED_LOW_CONF')
+                """
+            ).bindparams(
+                bindparam("manager_ids", expanding=True),
+                bindparam("report_dates", expanding=True),
+            ),
+            params={"manager_ids": keep_manager_ids, "report_dates": latest_report_dates},
+            batch_size=batch_size,
+        )
     copied_counts["beneficial_ownership_events"] = _copy_query_to_target(
         source_engine=source_engine,
         target_engine=target_engine,
@@ -2351,6 +2453,7 @@ def main() -> None:
             insider_keep_days=args.insider_keep_days,
             batch_size=args.batch_size,
             skip_schema_init=args.skip_schema_init,
+            compact_holdings=args.compact_holdings,
             dry_run=args.dry_run,
         )
     elif args.command == "refresh-aggregates":
