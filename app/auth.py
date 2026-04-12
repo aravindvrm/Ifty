@@ -41,27 +41,18 @@ def _fetch_supabase_user(token: str) -> AuthenticatedUser:
     supabase_url = str(settings.supabase_url or "").strip().rstrip("/")
     supabase_anon_key = str(settings.supabase_anon_key or "").strip()
     if not supabase_url:
-        supabase_url = str(
-            os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-            or os.getenv("SUPABASE_PUBLIC_URL")
-            or ""
-        ).strip().rstrip("/")
+        # Compatibility fallback for environments that only set frontend vars.
+        supabase_url = str(os.getenv("NEXT_PUBLIC_SUPABASE_URL") or "").strip().rstrip("/")
     if not supabase_anon_key:
-        supabase_anon_key = str(
-            os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-            or os.getenv("SUPABASE_ANON_KEY")
-            or os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY")
-            or os.getenv("SUPABASE_PUBLISHABLE_KEY")
-            or ""
-        ).strip()
+        # Compatibility fallback for environments that only set frontend vars.
+        supabase_anon_key = str(os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY") or "").strip()
     if not supabase_url or not supabase_anon_key:
         raise HTTPException(
             status_code=503,
             detail=(
                 "Supabase auth is not configured on backend "
-                "(set SUPABASE_URL + SUPABASE_ANON_KEY, or NEXT_PUBLIC_SUPABASE_URL + "
-                "NEXT_PUBLIC_SUPABASE_ANON_KEY, or SUPABASE_PUBLISHABLE_KEY / "
-                "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)."
+                "(set SUPABASE_URL + SUPABASE_ANON_KEY; NEXT_PUBLIC_SUPABASE_URL + "
+                "NEXT_PUBLIC_SUPABASE_ANON_KEY are accepted as compatibility fallback)."
             ),
         )
 

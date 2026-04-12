@@ -81,6 +81,10 @@ For Supabase auth in the web app:
   - `NEXT_PUBLIC_SUPABASE_URL`
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
   - `NEXT_PUBLIC_AUTH_REDIRECT_BASE_URL` (set to `http://localhost:3000` for local dev to force OAuth callback origin)
+- Canonical env naming:
+  - Frontend (Next.js / Vercel): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  - Backend (FastAPI / Render): `SUPABASE_URL`, `SUPABASE_ANON_KEY`
+  - Backend accepts `NEXT_PUBLIC_*` as fallback for compatibility, but prefer setting backend names explicitly.
 - Optional (Google OAuth):
   - In Supabase Auth > Providers, enable `Google` and set your Google client id/secret.
   - In Google Cloud OAuth, set Authorized redirect URI to:
